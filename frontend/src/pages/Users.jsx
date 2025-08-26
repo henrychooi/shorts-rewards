@@ -31,7 +31,7 @@ export default function Users() {
             {streams.map((s) => (
               <div key={s.id} className="rounded border bg-card p-4">
                 <div className="font-medium">{s.title}</div>
-                <div className="text-sm text-muted-foreground mb-3">by {s.host}</div>
+                <div className="text-sm text-muted-foreground mb-3">by {s.host_username}</div>
                 <Link
                   to={`/watch?id=${s.id}`}
                   className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"

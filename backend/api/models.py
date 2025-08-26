@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 
 class Note(models.Model):
@@ -19,6 +20,13 @@ class Stream(models.Model):
     theatre_mode = models.BooleanField(default=False)
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
+    stream_key = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    viewer_count = models.PositiveIntegerField(default=0)
+
+    def save(self, *args, **kwargs):
+        if not self.stream_key:
+            self.stream_key = f"stream_{self.host.username}_{timezone.now().timestamp()}"
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.title} ({'LIVE' if self.is_live else 'ENDED'})"
