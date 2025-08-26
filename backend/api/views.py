@@ -60,6 +60,21 @@ class StreamEnd(generics.UpdateAPIView):
         serializer.save(is_live=False)
 
 
+class StreamStart(generics.UpdateAPIView):
+    """Endpoint to mark a Stream as started and enable theatre mode."""
+    serializer_class = StreamSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        # only the host can start their stream
+        return Stream.objects.filter(host=self.request.user, is_live=False)
+
+    def perform_update(self, serializer):
+        from django.utils import timezone
+
+        serializer.save(is_live=True, theatre_mode=True, started_at=timezone.now())
+
+
 class GiftListCreate(generics.ListCreateAPIView):
     serializer_class = GiftSerializer
     permission_classes = [IsAuthenticated]

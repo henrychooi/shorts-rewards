@@ -13,10 +13,11 @@ class Note(models.Model):
 
 
 class Stream(models.Model):
-    host = models.ForeignKey(User, on_delete=models.CASCADE, related_name="streams")
+    host = models.ForeignKey(User, on_delete=models.CASCADE, related_name="streams", null=True)
     title = models.CharField(max_length=150)
-    is_live = models.BooleanField(default=True)
-    started_at = models.DateTimeField(auto_now_add=True)
+    is_live = models.BooleanField(default=False)
+    theatre_mode = models.BooleanField(default=False)
+    started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
