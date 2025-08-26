@@ -12,4 +12,5 @@ urlpatterns = [
     path("api/streams/end/<int:pk>/", StreamEnd.as_view(), name="stream_end"),
     path("api/gifts/", GiftCreate.as_view(), name="gift_create"),
     path("api-auth/", include("rest_framework.urls")),
+    path("api/", include("api.urls")),
 ]
