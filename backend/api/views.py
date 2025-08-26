@@ -2,7 +2,7 @@ from django.shortcuts import render
 from django.contrib.auth.models import User
 from rest_framework import generics
 from .serializers import UserSerializer, NoteSerializer, StreamSerializer, GiftSerializer
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAuthenticatedOrReadOnly
 from .models import Note, Stream, Gift
 from rest_framework.response import Response
 from rest_framework import status
@@ -40,7 +40,7 @@ class CreateUserView(generics.CreateAPIView):
 
 class StreamListCreate(generics.ListCreateAPIView):
     serializer_class = StreamSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
         return Stream.objects.filter(is_live=True)
@@ -60,9 +60,16 @@ class StreamEnd(generics.UpdateAPIView):
         serializer.save(is_live=False)
 
 
-class GiftCreate(generics.CreateAPIView):
+class GiftListCreate(generics.ListCreateAPIView):
     serializer_class = GiftSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = Gift.objects.all().order_by("-created_at")
+        stream_id = self.request.query_params.get("stream")
+        if stream_id:
+            qs = qs.filter(stream_id=stream_id)
+        return qs
 
     def perform_create(self, serializer):
         serializer.save(sender=self.request.user)

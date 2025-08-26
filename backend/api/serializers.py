@@ -23,9 +23,10 @@ class NoteSerializer(serializers.ModelSerializer):
 
 
 class StreamSerializer(serializers.ModelSerializer):
+    host_username = serializers.CharField(source="host.username", read_only=True)
     class Meta:
         model = Stream
-        fields = ["id", "title", "is_live", "started_at", "ended_at", "host"]
+        fields = ["id", "title", "is_live", "started_at", "ended_at", "host", "host_username"]
         extra_kwargs = {"host": {"read_only": True}}
 
 
