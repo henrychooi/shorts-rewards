@@ -1,3 +1,4 @@
+import uuid
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -25,8 +26,16 @@ class Stream(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.stream_key:
-            self.stream_key = f"stream_{self.host.username}_{timezone.now().timestamp()}"
+            self.stream_key = uuid.uuid4().hex
         super().save(*args, **kwargs)
+
+    @property
+    def call_cid(self):
+        """
+        Returns the call CID used by Stream SDK for this stream.
+        Example: 'livestream:42' if the object has been saved and has an id.
+        """
+        return f"livestream:{self.id}" if self.id else None
 
     def __str__(self):
         return f"{self.title} ({'LIVE' if self.is_live else 'ENDED'})"
@@ -40,4 +49,4 @@ class Gift(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.amount}x {self.gift_type} to {self.stream_id}"
+        return f"{self.amount}x {self.gift_type} to stream {self.stream.id}"

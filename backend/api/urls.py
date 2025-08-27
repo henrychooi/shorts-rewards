@@ -10,4 +10,5 @@ urlpatterns = [
     path("streams/<int:stream_id>/offer/", views.stream_offer, name="stream-offer"),
     path("streams/<int:stream_id>/answer/", views.stream_answer, name="stream-answer"),
     path("gifts/", views.GiftListCreate.as_view(), name="gift-list"),
+    path("stream/token/", views.create_stream_token, name="stream-token"),  
 ]
