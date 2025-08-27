@@ -206,11 +206,11 @@
   .top-header {
     display: block;
   }
-  
+
   .bottom-nav {
     display: none;
   }
-  
+
   body {
     padding-top: 60px;
   }
@@ -221,18 +221,18 @@
   .bottom-nav {
     padding-bottom: max(16px, env(safe-area-inset-bottom));
   }
-  
+
   .nav-item {
     min-width: 50px;
     padding: 6px 8px;
   }
-  
+
   .nav-item.special {
     width: 48px;
     height: 48px;
     margin-top: -6px;
   }
-  
+
   .nav-label {
     font-size: 10px;
   }
@@ -270,7 +270,7 @@
     background: rgba(0, 0, 0, 1);
     border-top: 2px solid white;
   }
-  
+
   .nav-item.active {
     background: white;
     color: black;
@@ -285,7 +285,7 @@
   .create-btn-desktop {
     transition: none;
   }
-  
+
   .nav-item.active svg {
     animation: none;
   }

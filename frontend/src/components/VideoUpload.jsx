@@ -1,16 +1,16 @@
-import { useState, useRef } from 'react';
-import { shortsApi } from '../services/shortsApi';
-import './VideoUpload.css';
+import { useState, useRef } from "react";
+import { shortsApi } from "../services/shortsApi";
+import "./VideoUpload.css";
 
 const VideoUpload = ({ onUploadSuccess, onClose }) => {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [videoFile, setVideoFile] = useState(null);
   const [videoPreview, setVideoPreview] = useState(null);
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [duration, setDuration] = useState(0);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const fileInputRef = useRef(null);
   const videoRef = useRef(null);
 
@@ -19,21 +19,21 @@ const VideoUpload = ({ onUploadSuccess, onClose }) => {
     if (!file) return;
 
     // Validate file type
-    const allowedTypes = ['video/mp4', 'video/mov', 'video/avi', 'video/webm'];
+    const allowedTypes = ["video/mp4", "video/mov", "video/avi", "video/webm"];
     if (!allowedTypes.includes(file.type)) {
-      setError('Please select a valid video file (MP4, MOV, AVI, or WebM)');
+      setError("Please select a valid video file (MP4, MOV, AVI, or WebM)");
       return;
     }
 
     // Validate file size (50MB)
     if (file.size > 50 * 1024 * 1024) {
-      setError('Video file size cannot exceed 50MB');
+      setError("Video file size cannot exceed 50MB");
       return;
     }
 
-    setError('');
+    setError("");
     setVideoFile(file);
-    
+
     // Create preview URL
     const previewUrl = URL.createObjectURL(file);
     setVideoPreview(previewUrl);
@@ -43,9 +43,9 @@ const VideoUpload = ({ onUploadSuccess, onClose }) => {
     if (videoRef.current) {
       const videoDuration = videoRef.current.duration;
       setDuration(videoDuration);
-      
+
       if (videoDuration > 10) {
-        setError('Video duration cannot exceed 10 seconds');
+        setError("Video duration cannot exceed 10 seconds");
         setVideoFile(null);
         setVideoPreview(null);
         URL.revokeObjectURL(videoPreview);
@@ -55,14 +55,14 @@ const VideoUpload = ({ onUploadSuccess, onClose }) => {
 
   const handleUpload = async (e) => {
     e.preventDefault();
-    
+
     if (!videoFile) {
-      setError('Please select a video file');
+      setError("Please select a video file");
       return;
     }
 
     if (duration > 10) {
-      setError('Video duration cannot exceed 10 seconds');
+      setError("Video duration cannot exceed 10 seconds");
       return;
     }
 
@@ -71,14 +71,14 @@ const VideoUpload = ({ onUploadSuccess, onClose }) => {
 
     try {
       const formData = new FormData();
-      formData.append('video', videoFile);
-      formData.append('title', title);
-      formData.append('description', description);
-      formData.append('duration', duration);
+      formData.append("video", videoFile);
+      formData.append("title", title);
+      formData.append("description", description);
+      formData.append("duration", duration);
 
       // Simulate progress for better UX
       const progressInterval = setInterval(() => {
-        setUploadProgress(prev => {
+        setUploadProgress((prev) => {
           if (prev >= 90) {
             clearInterval(progressInterval);
             return prev;
@@ -88,18 +88,20 @@ const VideoUpload = ({ onUploadSuccess, onClose }) => {
       }, 200);
 
       const response = await shortsApi.createShort(formData);
-      
+
       clearInterval(progressInterval);
       setUploadProgress(100);
-      
+
       setTimeout(() => {
         onUploadSuccess?.(response.data);
         resetForm();
       }, 500);
-
     } catch (err) {
-      console.error('Upload error:', err);
-      setError(err.response?.data?.detail || 'Failed to upload video. Please try again.');
+      console.error("Upload error:", err);
+      setError(
+        err.response?.data?.detail ||
+          "Failed to upload video. Please try again."
+      );
     } finally {
       setUploading(false);
       setUploadProgress(0);
@@ -109,13 +111,13 @@ const VideoUpload = ({ onUploadSuccess, onClose }) => {
   const resetForm = () => {
     setVideoFile(null);
     setVideoPreview(null);
-    setTitle('');
-    setDescription('');
+    setTitle("");
+    setDescription("");
     setDuration(0);
-    setError('');
+    setError("");
     setUploadProgress(0);
     if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+      fileInputRef.current.value = "";
     }
     if (videoPreview) {
       URL.revokeObjectURL(videoPreview);
@@ -134,7 +136,7 @@ const VideoUpload = ({ onUploadSuccess, onClose }) => {
           <h2>Create New Short</h2>
           <button className="close-btn" onClick={handleClose}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
             </svg>
           </button>
         </div>
@@ -152,7 +154,12 @@ const VideoUpload = ({ onUploadSuccess, onClose }) => {
               />
               <label htmlFor="video-upload" className="upload-label">
                 <div className="upload-icon">
-                  <svg width="64" height="64" viewBox="0 0 24 24" fill="currentColor">
+                  <svg
+                    width="64"
+                    height="64"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                  >
                     <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
                   </svg>
                 </div>
@@ -174,8 +181,8 @@ const VideoUpload = ({ onUploadSuccess, onClose }) => {
                 onLoadedMetadata={handleVideoLoad}
                 className="preview-video"
               />
-              <button 
-                type="button" 
+              <button
+                type="button"
                 className="change-video-btn"
                 onClick={() => {
                   resetForm();
@@ -189,7 +196,12 @@ const VideoUpload = ({ onUploadSuccess, onClose }) => {
 
           {error && (
             <div className="error-message">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
                 <path d="M12,2C17.53,2 22,6.47 22,12C22,17.53 17.53,22 12,22C6.47,22 2,17.53 2,12C2,6.47 6.47,2 12,2M15.59,7L12,10.59L8.41,7L7,8.41L10.59,12L7,15.59L8.41,17L12,13.41L15.59,17L17,15.59L13.41,12L17,8.41L15.59,7Z" />
               </svg>
               {error}
@@ -228,7 +240,9 @@ const VideoUpload = ({ onUploadSuccess, onClose }) => {
                 <div className="video-info">
                   <span className="duration-info">
                     Duration: {duration.toFixed(1)}s
-                    {duration > 10 && <span className="warning"> (Too long!)</span>}
+                    {duration > 10 && (
+                      <span className="warning"> (Too long!)</span>
+                    )}
                   </span>
                 </div>
               )}
@@ -238,30 +252,32 @@ const VideoUpload = ({ onUploadSuccess, onClose }) => {
           {uploading && (
             <div className="upload-progress">
               <div className="progress-bar">
-                <div 
-                  className="progress-fill" 
+                <div
+                  className="progress-fill"
                   style={{ width: `${uploadProgress}%` }}
                 />
               </div>
-              <span className="progress-text">Uploading... {Math.round(uploadProgress)}%</span>
+              <span className="progress-text">
+                Uploading... {Math.round(uploadProgress)}%
+              </span>
             </div>
           )}
 
           <div className="form-actions">
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="cancel-btn"
               onClick={handleClose}
               disabled={uploading}
             >
               Cancel
             </button>
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               className="upload-btn"
               disabled={!videoFile || uploading || duration > 10}
             >
-              {uploading ? 'Uploading...' : 'Share Short'}
+              {uploading ? "Uploading..." : "Share Short"}
             </button>
           </div>
         </form>

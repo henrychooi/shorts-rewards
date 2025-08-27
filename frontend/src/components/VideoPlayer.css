@@ -336,23 +336,23 @@
     left: 16px;
     right: 70px;
   }
-  
+
   .action-buttons {
     right: 16px;
     bottom: 120px;
     gap: 12px;
   }
-  
+
   .action-btn {
     min-width: 44px;
     min-height: 44px;
     padding: 10px;
   }
-  
+
   .action-btn span {
     font-size: 10px;
   }
-  
+
   .comments-overlay {
     max-height: 80vh;
   }

@@ -51,8 +51,12 @@
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .loading-spinner p {
@@ -220,24 +224,24 @@
     right: 12px;
     gap: 8px;
   }
-  
+
   .nav-btn {
     width: 36px;
     height: 36px;
   }
-  
+
   .progress-dot {
     width: 6px;
     height: 6px;
   }
-  
+
   .video-counter {
     top: 12px;
     right: 12px;
     padding: 6px 12px;
     font-size: 12px;
   }
-  
+
   .progress-indicator {
     max-height: 150px;
     gap: 6px;

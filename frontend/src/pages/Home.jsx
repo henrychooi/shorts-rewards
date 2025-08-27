@@ -10,7 +10,7 @@ function Home() {
   const [showUpload, setShowUpload] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [refreshFeed, setRefreshFeed] = useState(0);
-  const [currentView, setCurrentView] = useState('home');
+  const [currentView, setCurrentView] = useState("home");
   const [profileUsername, setProfileUsername] = useState(null);
 
   useEffect(() => {
@@ -21,49 +21,46 @@ function Home() {
     try {
       // For now, we'll get username from localStorage
       // In a real app, you'd fetch this from an API endpoint
-      const token = localStorage.getItem('access');
+      const token = localStorage.getItem("access");
       if (token) {
         // Decode JWT token to get username (simplified)
         try {
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          setCurrentUser({ username: payload.username || 'user' });
+          const payload = JSON.parse(atob(token.split(".")[1]));
+          setCurrentUser({ username: payload.username || "user" });
         } catch {
           // Fallback to stored username or default
-          const storedUsername = localStorage.getItem('username') || 'user';
+          const storedUsername = localStorage.getItem("username") || "user";
           setCurrentUser({ username: storedUsername });
         }
       }
     } catch (error) {
-      console.error('Error getting current user:', error);
-      setCurrentUser({ username: 'user' });
+      console.error("Error getting current user:", error);
+      setCurrentUser({ username: "user" });
     }
   };
 
   const handleUploadSuccess = () => {
     setShowUpload(false);
-    setRefreshFeed(prev => prev + 1); // Trigger feed refresh
+    setRefreshFeed((prev) => prev + 1); // Trigger feed refresh
   };
 
   const handleProfileView = (username = null) => {
     setProfileUsername(username || currentUser?.username);
-    setCurrentView('profile');
+    setCurrentView("profile");
   };
 
   const handleBackToHome = () => {
-    setCurrentView('home');
+    setCurrentView("home");
     setProfileUsername(null);
   };
 
   const renderCurrentView = () => {
     switch (currentView) {
-      case 'profile':
+      case "profile":
         return (
-          <Profile 
-            username={profileUsername} 
-            onClose={handleBackToHome}
-          />
+          <Profile username={profileUsername} onClose={handleBackToHome} />
         );
-      case 'home':
+      case "home":
       default:
         return <ShortsFeed key={refreshFeed} />;
     }
@@ -71,17 +68,15 @@ function Home() {
 
   return (
     <div className="home-container">
-      <Navigation 
+      <Navigation
         onCreateShort={() => setShowUpload(true)}
         onProfileClick={() => handleProfileView()}
         currentUser={currentUser}
         currentView={currentView}
         onViewChange={setCurrentView}
       />
-      
-      <main className="main-content">
-        {renderCurrentView()}
-      </main>
+
+      <main className="main-content">{renderCurrentView()}</main>
 
       {showUpload && (
         <VideoUpload
