@@ -1,83 +1,94 @@
 import { useState, useEffect } from "react";
+import ShortsFeed from "../components/ShortsFeed";
+import VideoUpload from "../components/VideoUpload";
+import Navigation from "../components/Navigation";
+import Profile from "./Profile";
 import api from "../api";
-import Note from "../components/Note";
 import "../styles/Home.css";
 
 function Home() {
-  const [notes, setNotes] = useState([]);
-  const [content, setContent] = useState("");
-  const [title, setTitle] = useState("");
+  const [showUpload, setShowUpload] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [refreshFeed, setRefreshFeed] = useState(0);
+  const [currentView, setCurrentView] = useState('home');
+  const [profileUsername, setProfileUsername] = useState(null);
 
   useEffect(() => {
-    getNotes();
+    getCurrentUser();
   }, []);
 
-  const getNotes = () => {
-    api
-      .get("/api/notes/")
-      .then((res) => res.data)
-      .then((data) => {
-        setNotes(data);
-        console.log(data);
-      })
-      .catch((err) => alert(err));
+  const getCurrentUser = async () => {
+    try {
+      // For now, we'll get username from localStorage
+      // In a real app, you'd fetch this from an API endpoint
+      const token = localStorage.getItem('access');
+      if (token) {
+        // Decode JWT token to get username (simplified)
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          setCurrentUser({ username: payload.username || 'user' });
+        } catch {
+          // Fallback to stored username or default
+          const storedUsername = localStorage.getItem('username') || 'user';
+          setCurrentUser({ username: storedUsername });
+        }
+      }
+    } catch (error) {
+      console.error('Error getting current user:', error);
+      setCurrentUser({ username: 'user' });
+    }
   };
 
-  const deleteNote = (id) => {
-    api
-      .delete(`/api/notes/delete/${id}/`)
-      .then((res) => {
-        if (res.status === 204) alert("Note deleted!");
-        else alert("Failed to delete note.");
-        getNotes();
-      })
-      .catch((error) => alert(error));
+  const handleUploadSuccess = () => {
+    setShowUpload(false);
+    setRefreshFeed(prev => prev + 1); // Trigger feed refresh
   };
 
-  const createNote = (e) => {
-    e.preventDefault();
-    api
-      .post("/api/notes/", { content, title })
-      .then((res) => {
-        if (res.status === 201) alert("Note created!");
-        else alert("Failed to make note.");
-        getNotes();
-      })
-      .catch((err) => alert(err));
+  const handleProfileView = (username = null) => {
+    setProfileUsername(username || currentUser?.username);
+    setCurrentView('profile');
+  };
+
+  const handleBackToHome = () => {
+    setCurrentView('home');
+    setProfileUsername(null);
+  };
+
+  const renderCurrentView = () => {
+    switch (currentView) {
+      case 'profile':
+        return (
+          <Profile 
+            username={profileUsername} 
+            onClose={handleBackToHome}
+          />
+        );
+      case 'home':
+      default:
+        return <ShortsFeed key={refreshFeed} />;
+    }
   };
 
   return (
-    <div>
-      <div>
-        <h2>Notes</h2>
-        {notes.map((note) => (
-          <Note note={note} onDelete={deleteNote} key={note.id} />
-        ))}
-      </div>
-      <h2>Create a Note</h2>
-      <form onSubmit={createNote}>
-        <label htmlFor="title">Title:</label>
-        <br />
-        <input
-          type="text"
-          id="title"
-          name="title"
-          required
-          onChange={(e) => setTitle(e.target.value)}
-          value={title}
+    <div className="home-container">
+      <Navigation 
+        onCreateShort={() => setShowUpload(true)}
+        onProfileClick={() => handleProfileView()}
+        currentUser={currentUser}
+        currentView={currentView}
+        onViewChange={setCurrentView}
+      />
+      
+      <main className="main-content">
+        {renderCurrentView()}
+      </main>
+
+      {showUpload && (
+        <VideoUpload
+          onUploadSuccess={handleUploadSuccess}
+          onClose={() => setShowUpload(false)}
         />
-        <label htmlFor="content">Content:</label>
-        <br />
-        <textarea
-          id="content"
-          name="content"
-          required
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-        ></textarea>
-        <br />
-        <input type="submit" value="Submit"></input>
-      </form>
+      )}
     </div>
   );
 }

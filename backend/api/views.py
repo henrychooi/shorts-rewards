@@ -1,11 +1,137 @@
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.models import User
-from rest_framework import generics
-from .serializers import UserSerializer, NoteSerializer
+from django.db.models import F
+from rest_framework import generics, status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from .models import Note
+from rest_framework.parsers import MultiPartParser, FormParser
+from .serializers import (
+    UserSerializer, NoteSerializer, ShortSerializer, ShortCreateSerializer,
+    LikeSerializer, CommentSerializer, UserProfileSerializer
+)
+from .models import Note, Short, Like, Comment, View
 
 
+class ShortsListView(generics.ListAPIView):
+    serializer_class = ShortSerializer
+    permission_classes = [AllowAny]
+    
+    def get_queryset(self):
+        return Short.objects.filter(is_active=True).select_related('author').prefetch_related('likes', 'comments')
+
+
+class ShortCreateView(generics.CreateAPIView):
+    serializer_class = ShortCreateSerializer
+    permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
+    
+    def perform_create(self, serializer):
+        serializer.save(author=self.request.user)
+
+
+class ShortDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = ShortSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        if self.request.method == 'GET':
+            return Short.objects.filter(is_active=True)
+        # For update/delete, only allow the author
+        return Short.objects.filter(author=self.request.user, is_active=True)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def toggle_like(request, short_id):
+    short = get_object_or_404(Short, id=short_id, is_active=True)
+    like, created = Like.objects.get_or_create(user=request.user, short=short)
+    
+    if not created:
+        like.delete()
+        liked = False
+    else:
+        liked = True
+    
+    return Response({
+        'liked': liked,
+        'like_count': short.like_count
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def add_comment(request, short_id):
+    short = get_object_or_404(Short, id=short_id, is_active=True)
+    serializer = CommentSerializer(data=request.data)
+    
+    if serializer.is_valid():
+        serializer.save(user=request.user, short=short)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_comments(request, short_id):
+    short = get_object_or_404(Short, id=short_id, is_active=True)
+    comments = Comment.objects.filter(short=short, is_active=True, parent=None)
+    serializer = CommentSerializer(comments, many=True)
+    return Response(serializer.data)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def track_view(request, short_id):
+    short = get_object_or_404(Short, id=short_id, is_active=True)
+    
+    # Get client IP
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0]
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+    
+    watch_duration = request.data.get('watch_duration', 0.0)
+    
+    # Create view record
+    View.objects.create(
+        user=request.user if request.user.is_authenticated else None,
+        short=short,
+        ip_address=ip,
+        watch_duration=watch_duration
+    )
+    
+    # Increment view count
+    Short.objects.filter(id=short_id).update(view_count=F('view_count') + 1)
+    
+    return Response({'status': 'success'})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def user_shorts(request):
+    shorts = Short.objects.filter(author=request.user, is_active=True)
+    serializer = ShortSerializer(shorts, many=True, context={'request': request})
+    return Response(serializer.data)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def user_profile(request, username):
+    user = get_object_or_404(User, username=username)
+    user_serializer = UserProfileSerializer(user)
+    shorts = Short.objects.filter(author=user, is_active=True)[:20]  # Latest 20 shorts
+    shorts_serializer = ShortSerializer(shorts, many=True, context={'request': request})
+    
+    return Response({
+        'user': user_serializer.data,
+        'shorts': shorts_serializer.data
+    })
+
+
+# Keep existing Note views for backward compatibility
 class NoteListCreate(generics.ListCreateAPIView):
     serializer_class = NoteSerializer
     permission_classes = [IsAuthenticated]
