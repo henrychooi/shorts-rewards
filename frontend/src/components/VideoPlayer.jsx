@@ -38,6 +38,7 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
   }, [short.id, viewTracked]);
 
   const togglePlay = () => {
+    if (!videoRef.current) return;
     if (videoRef.current.paused) {
       videoRef.current.play();
       setIsPlaying(true);
@@ -85,7 +86,7 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
   };
 
   const toggleComments = () => {
-    setShowComments(!showComments);
+    setShowComments((prev) => !prev);
     if (!showComments && comments.length === 0) {
       loadComments();
     }
@@ -136,37 +137,43 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
           </div>
         )}
 
+        {/* NEW: video-info now contains a white card (.video-info-card)
+            that visually groups user-info + title + description + stats */}
         <div className="video-info">
-          <div
-            className="user-info"
-            onClick={() => onProfileClick && onProfileClick(short.author.username)}
-            style={{ cursor: "pointer" }}
-          >            <div className="avatar">
-              {short.author.username.charAt(0).toUpperCase()}
+          <div className="video-info-card">
+            <div
+              className="user-info"
+              onClick={() => onProfileClick && onProfileClick(short.author.username)}
+              style={{ cursor: "pointer" }}
+            >
+              <div className="avatar">
+                {short.author.username.charAt(0).toUpperCase()}
+              </div>
+              <div className="user-details">
+                <h3 className="username">@{short.author.username}</h3>
+                <p className="timestamp">{formatTimeAgo(short.created_at)}</p>
+              </div>
             </div>
-            <div className="user-details">
-              <h3 className="username">@{short.author.username}</h3>
-              <p className="timestamp">{formatTimeAgo(short.created_at)}</p>
+
+            {/* title + description are inside the same white card (visually bounded to user-info) */}
+            {short.title && <h4 className="video-title">{short.title}</h4>}
+            {short.description && (
+              <p className="video-description">{short.description}</p>
+            )}
+
+            <div className="video-stats">
+              <span className="stat" aria-hidden>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
+                </svg>
+                {formatCount(short.view_count)}
+              </span>
             </div>
-          </div>
-
-          {short.title && <h4 className="video-title">{short.title}</h4>}
-          {short.description && (
-            <p className="video-description">{short.description}</p>
-          )}
-
-          <div className="video-stats">
-            <span className="stat">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
-              </svg>
-              {formatCount(short.view_count)}
-            </span>
           </div>
         </div>
       </div>
@@ -265,6 +272,5 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
     </div>
   );
 };
-
 
 export default VideoPlayer;
