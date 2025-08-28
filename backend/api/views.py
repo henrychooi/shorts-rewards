@@ -8,12 +8,22 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
+from django.http import JsonResponse
+import json
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 from .serializers import (
     UserSerializer, NoteSerializer, ShortSerializer, ShortCreateSerializer,
     LikeSerializer, CommentSerializer, UserProfileSerializer, WalletSerializer, 
     TransactionSerializer, AuditLogSerializer
 )
 from .models import Note, Short, Like, Comment, View, Wallet, Transaction, AuditLog
+from .audio_service import AudioProcessingService
+import logging
+
+logger = logging.getLogger(__name__)
+
+audio_service = AudioProcessingService()
 
 
 class ShortsListView(generics.ListAPIView):
@@ -42,6 +52,184 @@ class ShortDetailView(generics.RetrieveUpdateDestroyAPIView):
             return Short.objects.filter(is_active=True)
         # For update/delete, only allow the author
         return Short.objects.filter(author=self.request.user, is_active=True)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])  # Adjust permissions as needed
+def process_all_videos_audio(request):
+    """
+    Process all MP4 videos in the media directory and analyze their audio quality
+    """
+    try:
+        logger.info("Starting batch audio processing for all videos")
+        results = audio_service.process_all_videos()
+        
+        # Calculate summary statistics
+        total_videos = len(results)
+        successful_processes = len([r for r in results if 'error' not in r])
+        average_quality = sum([r['quality_analysis']['quality_score'] for r in results]) / total_videos if total_videos > 0 else 0
+        
+        response_data = {
+            'success': True,
+            'message': f'Processed {successful_processes}/{total_videos} videos successfully',
+            'summary': {
+                'total_videos': total_videos,
+                'successful_processes': successful_processes,
+                'average_quality_score': round(average_quality, 2)
+            },
+            'results': results
+        }
+        
+        logger.info(f"Batch processing completed: {successful_processes}/{total_videos} successful")
+        return Response(response_data, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f"Error in batch audio processing: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Batch processing failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def process_single_video_audio(request):
+    """
+    Process a single video file's audio quality
+    Expected payload: {"video_filename": "example.mp4"}
+    """
+    try:
+        video_filename = request.data.get('video_filename')
+        
+        if not video_filename:
+            return Response({
+                'success': False,
+                'error': 'video_filename is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        logger.info(f"Processing single video: {video_filename}")
+        result = audio_service.process_single_video(video_filename)
+        
+        if 'error' in result:
+            return Response({
+                'success': False,
+                'error': result['error'],
+                'quality_analysis': result['quality_analysis']
+            }, status=status.HTTP_404_NOT_FOUND if 'not found' in result['error'].lower() else status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        response_data = {
+            'success': True,
+            'message': f'Successfully processed {video_filename}',
+            'result': result
+        }
+        
+        logger.info(f"Single video processing completed: {video_filename} - Quality: {result['quality_analysis']['quality_score']:.1f}")
+        return Response(response_data, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f"Error processing single video: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Processing failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_audio_quality_report(request):
+    """
+    Get a summary report of all processed audio files
+    """
+    try:
+        # This could be enhanced to read from a database where you store results
+        # For now, it processes all videos to get current status
+        results = audio_service.process_all_videos()
+        
+        # Generate report
+        report = {
+            'total_videos': len(results),
+            'quality_distribution': {
+                'excellent': len([r for r in results if r['quality_analysis']['quality_score'] >= 80]),
+                'good': len([r for r in results if 60 <= r['quality_analysis']['quality_score'] < 80]),
+                'fair': len([r for r in results if 40 <= r['quality_analysis']['quality_score'] < 60]),
+                'poor': len([r for r in results if r['quality_analysis']['quality_score'] < 40])
+            },
+            'average_quality_score': sum([r['quality_analysis']['quality_score'] for r in results]) / len(results) if results else 0,
+            'processing_errors': len([r for r in results if 'error' in r]),
+            'detailed_results': results
+        }
+        
+        return Response({
+            'success': True,
+            'report': report
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f"Error generating audio quality report: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Report generation failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+def list_videos(request):
+    """
+    List all available MP4 videos in the media directory
+    """
+    try:
+        videos = list(audio_service.media_videos_path.glob("*.mp4"))
+        video_list = [
+            {
+                'filename': video.name,
+                'path': str(video),
+                'size_mb': round(video.stat().st_size / (1024 * 1024), 2),
+                'modified': video.stat().st_mtime
+            }
+            for video in videos
+        ]
+        
+        return Response({
+            'success': True,
+            'videos': video_list,
+            'total_count': len(video_list)
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f"Error listing videos: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Failed to list videos: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# Traditional Django view example (if not using DRF)
+@csrf_exempt
+@require_http_methods(["POST"])
+def process_videos_traditional(request):
+    """
+    Traditional Django view for processing videos (without DRF)
+    """
+    try:
+        if request.method == 'POST':
+            data = json.loads(request.body)
+            video_filename = data.get('video_filename')
+            
+            if video_filename:
+                # Process single video
+                result = audio_service.process_single_video(video_filename)
+                return JsonResponse({
+                    'success': 'error' not in result,
+                    'result': result
+                })
+            else:
+                # Process all videos
+                results = audio_service.process_all_videos()
+                return JsonResponse({
+                    'success': True,
+                    'results': results
+                })
+                
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
 
 
 @api_view(['POST'])

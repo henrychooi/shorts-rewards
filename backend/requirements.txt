@@ -8,3 +8,11 @@ pytz
 sqlparse
 psycopg2-binary
 python-dotenv
+requests>=2.31.0
+pathlib
+ffmpeg-python
+lmstudio
+huggingface-hub
+transformers
+torchaudio
+torch

@@ -8,7 +8,8 @@ from api.views import (
     toggle_like, add_comment, get_comments, track_view,
     user_shorts, user_profile, wallet_detail, wallet_transactions,
     verify_transaction, audit_log, wallet_integrity_report,
-    track_watch_progress, get_video_analytics, get_user_watch_history
+    track_watch_progress, get_video_analytics, get_user_watch_history, process_all_videos_audio, process_single_video_audio,
+    get_audio_quality_report, list_videos, process_videos_traditional
 )
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -43,6 +44,12 @@ urlpatterns = [
     path("api/wallet/verify/<uuid:transaction_id>/", verify_transaction, name="verify-transaction"),
     path("api/wallet/audit/", audit_log, name="audit-log"),
     path("api/wallet/integrity/", wallet_integrity_report, name="wallet-integrity"),
+
+    # Audio processing endpoints
+    path('api/audio/process-all/', process_all_videos_audio, name='process_all_videos_audio'),
+    path('api/audio/process-single/', process_single_video_audio, name='process_single_video_audio'),
+    path('api/audio/quality-report/', get_audio_quality_report, name='audio_quality_report'),
+    path('api/videos/list/', list_videos, name='list_videos'),
 ]
 
 # Serve media files during development

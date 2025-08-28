@@ -1,5 +1,6 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
+from django.core.validators import FileExtensionValidator
 from .models import Note, Short, Like, Comment, View, Wallet, Transaction, AuditLog
 
 
@@ -139,3 +140,106 @@ class WalletSerializer(serializers.ModelSerializer):
     class Meta:
         model = Wallet
         fields = ["balance", "total_earnings", "view_earnings", "like_earnings", "comment_earnings", "created_at"]
+
+class AudioQualityAnalysisSerializer(serializers.Serializer):
+    """Serializer for audio quality analysis results"""
+    quality_score = serializers.FloatField(min_value=0, max_value=100)
+    analysis = serializers.CharField(max_length=500)
+    metrics = serializers.DictField(required=False)
+
+class TranscriptionSegmentSerializer(serializers.Serializer):
+    """Serializer for individual transcription segments"""
+    start = serializers.FloatField()
+    end = serializers.FloatField()
+    text = serializers.CharField()
+    avg_logprob = serializers.FloatField(required=False)
+    no_speech_prob = serializers.FloatField(required=False)
+
+class TranscriptionResultSerializer(serializers.Serializer):
+    """Serializer for Whisper transcription results"""
+    success = serializers.BooleanField()
+    text = serializers.CharField(required=False)
+    language = serializers.CharField(required=False)
+    duration = serializers.FloatField(required=False)
+    segments = TranscriptionSegmentSerializer(many=True, required=False)
+    error = serializers.CharField(required=False)
+    audio_file = serializers.CharField()
+    video_file = serializers.CharField(required=False)
+
+class VideoProcessingResultSerializer(serializers.Serializer):
+    """Serializer for complete video processing results"""
+    video_file = serializers.CharField()
+    audio_file = serializers.CharField()
+    transcription = TranscriptionResultSerializer()
+    quality_analysis = AudioQualityAnalysisSerializer()
+    processed_at = serializers.CharField(required=False)
+    error = serializers.CharField(required=False)
+
+class BatchProcessingResultSerializer(serializers.Serializer):
+    """Serializer for batch processing results"""
+    success = serializers.BooleanField()
+    message = serializers.CharField()
+    summary = serializers.DictField()
+    results = VideoProcessingResultSerializer(many=True)
+
+class VideoProcessingRequestSerializer(serializers.Serializer):
+    """Serializer for single video processing requests"""
+    video_filename = serializers.CharField(
+        max_length=255,
+        validators=[FileExtensionValidator(allowed_extensions=['mp4', 'avi', 'mov', 'mkv'])]
+    )
+
+class VideoListItemSerializer(serializers.Serializer):
+    """Serializer for video list items"""
+    filename = serializers.CharField()
+    path = serializers.CharField()
+    size_mb = serializers.FloatField()
+    modified = serializers.FloatField()
+
+class VideoListResponseSerializer(serializers.Serializer):
+    """Serializer for video list response"""
+    success = serializers.BooleanField()
+    videos = VideoListItemSerializer(many=True)
+    total_count = serializers.IntegerField()
+
+class AudioQualityReportSerializer(serializers.Serializer):
+    """Serializer for audio quality reports"""
+    total_videos = serializers.IntegerField()
+    quality_distribution = serializers.DictField()
+    average_quality_score = serializers.FloatField()
+    processing_errors = serializers.IntegerField()
+    detailed_results = VideoProcessingResultSerializer(many=True)
+
+class QualityReportResponseSerializer(serializers.Serializer):
+    """Serializer for quality report response"""
+    success = serializers.BooleanField()
+    report = AudioQualityReportSerializer()
+
+# Model serializers 
+class VideoAudioAnalysis(serializers.ModelSerializer):
+    """Model serializer for storing audio analysis results in database"""
+    
+    class Meta:
+        model = None  # Replace with your actual model
+        fields = [
+            'id', 'video_filename', 'audio_filename', 'quality_score',
+            'transcription_text', 'analysis_summary', 'processed_at',
+            'word_count', 'duration_seconds', 'average_confidence',
+            'silence_ratio', 'speech_rate'
+        ]
+        read_only_fields = ['id', 'processed_at']
+
+# Custom validation serializers
+class LMStudioConfigSerializer(serializers.Serializer):
+    """Serializer for LMStudio configuration"""
+    base_url = serializers.URLField(default='http://localhost:1234/v1')
+    model_name = serializers.CharField(default='whisper-small')
+    timeout = serializers.IntegerField(default=300, min_value=30, max_value=1800)
+    temperature = serializers.FloatField(default=0.0, min_value=0.0, max_value=1.0)
+
+class AudioProcessingConfigSerializer(serializers.Serializer):
+    """Serializer for audio processing configuration"""
+    sample_rate = serializers.IntegerField(default=16000, min_value=8000, max_value=48000)
+    channels = serializers.IntegerField(default=1, min_value=1, max_value=2)
+    format = serializers.ChoiceField(choices=['wav', 'mp3', 'flac'], default='wav')
+    quality = serializers.ChoiceField(choices=['high', 'medium', 'low'], default='high')
