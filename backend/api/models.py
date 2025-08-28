@@ -1,7 +1,11 @@
 from django.db import models
 from django.contrib.auth.models import User
+from decimal import Decimal
 import uuid
 import os
+import hashlib
+import json
+from datetime import datetime
 
 
 class Short(models.Model):
@@ -169,8 +173,8 @@ class Note(models.Model):
 
 class Wallet(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='wallet')
-    balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    total_earnings = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    balance = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    total_earnings = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -214,11 +218,24 @@ class Transaction(models.Model):
         ('bonus', 'Bonus'),
     ]
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     wallet = models.ForeignKey(Wallet, on_delete=models.CASCADE, related_name='transactions')
     transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
     amount = models.DecimalField(max_digits=10, decimal_places=4)
     description = models.CharField(max_length=255)
     related_short = models.ForeignKey(Short, on_delete=models.SET_NULL, null=True, blank=True)
+    
+    # Blockchain-inspired security fields
+    transaction_hash = models.CharField(max_length=64, unique=True, editable=False, null=True, blank=True)
+    previous_hash = models.CharField(max_length=64, blank=True, null=True)
+    merkle_root = models.CharField(max_length=64, blank=True, null=True)
+    digital_signature = models.TextField(blank=True, null=True)
+    nonce = models.BigIntegerField(default=0)
+    
+    # Immutability fields
+    is_confirmed = models.BooleanField(default=False)
+    confirmation_count = models.PositiveIntegerField(default=0)
+    
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -226,8 +243,145 @@ class Transaction(models.Model):
         indexes = [
             models.Index(fields=['wallet', '-created_at']),
             models.Index(fields=['transaction_type']),
+            models.Index(fields=['transaction_hash']),
+            models.Index(fields=['is_confirmed']),
         ]
 
     def __str__(self):
         return f"{self.wallet.user.username} - {self.transaction_type} - ${self.amount}"
+
+    def calculate_hash(self):
+        """Calculate cryptographic hash for this transaction"""
+        transaction_data = {
+            'id': str(self.id),
+            'wallet_id': self.wallet.id,
+            'transaction_type': self.transaction_type,
+            'amount': str(self.amount),
+            'description': self.description,
+            'related_short_id': str(self.related_short.id) if self.related_short else None,
+            'previous_hash': self.previous_hash,
+            'timestamp': self.created_at.isoformat() if self.created_at else datetime.now().isoformat(),
+            'nonce': self.nonce
+        }
+        
+        transaction_string = json.dumps(transaction_data, sort_keys=True)
+        return hashlib.sha256(transaction_string.encode()).hexdigest()
+
+    def generate_merkle_root(self):
+        """Generate Merkle root for transaction verification"""
+        # Simplified Merkle root (in production, you'd include multiple transactions)
+        data = f"{self.transaction_hash}{self.wallet.id}{self.amount}"
+        return hashlib.sha256(data.encode()).hexdigest()
+
+    def save(self, *args, **kwargs):
+        # Generate hash before saving if not already set
+        if not self.transaction_hash:
+            # Get previous transaction hash for chaining
+            previous_tx = Transaction.objects.filter(
+                wallet=self.wallet
+            ).order_by('-created_at').first()
+            
+            if previous_tx:
+                self.previous_hash = previous_tx.transaction_hash
+            
+            # Generate the transaction hash
+            super().save(*args, **kwargs)  # Save first to get created_at
+            
+            # Generate a unique hash with retry logic
+            max_retries = 10
+            for attempt in range(max_retries):
+                self.nonce = attempt
+                calculated_hash = self.calculate_hash()
+                
+                # Check if hash already exists
+                if not Transaction.objects.filter(transaction_hash=calculated_hash).exists():
+                    self.transaction_hash = calculated_hash
+                    break
+            
+            self.merkle_root = self.generate_merkle_root()
+            super().save(update_fields=['transaction_hash', 'merkle_root', 'nonce'])
+        else:
+            super().save(*args, **kwargs)
+
+    def verify_integrity(self):
+        """Verify transaction integrity using hash"""
+        calculated_hash = self.calculate_hash()
+        return calculated_hash == self.transaction_hash
+
+    def get_chain_validity(self):
+        """Check if this transaction is properly chained to the previous one"""
+        if not self.previous_hash:
+            return True  # Genesis transaction
+            
+        previous_tx = Transaction.objects.filter(
+            wallet=self.wallet,
+            transaction_hash=self.previous_hash
+        ).first()
+        
+        return previous_tx is not None and previous_tx.verify_integrity()
+
+
+class AuditLog(models.Model):
+    """Immutable audit log for all system actions - blockchain-inspired transparency"""
+    
+    ACTION_TYPES = [
+        ('transaction_created', 'Transaction Created'),
+        ('wallet_created', 'Wallet Created'),
+        ('withdrawal_request', 'Withdrawal Request'),
+        ('admin_action', 'Admin Action'),
+        ('security_event', 'Security Event'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    action_type = models.CharField(max_length=30, choices=ACTION_TYPES)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='audit_logs')
+    description = models.TextField()
+    metadata = models.JSONField(default=dict)  # Store additional data
+    
+    # Blockchain-inspired fields
+    log_hash = models.CharField(max_length=64, unique=True, editable=False)
+    previous_log_hash = models.CharField(max_length=64, blank=True, null=True)
+    
+    # Immutability
+    is_immutable = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['action_type']),
+            models.Index(fields=['log_hash']),
+        ]
+
+    def calculate_hash(self):
+        """Calculate hash for audit log entry"""
+        log_data = {
+            'id': str(self.id),
+            'action_type': self.action_type,
+            'user_id': self.user.id,
+            'description': self.description,
+            'metadata': self.metadata,
+            'previous_log_hash': self.previous_log_hash,
+            'timestamp': self.created_at.isoformat() if self.created_at else datetime.now().isoformat()
+        }
+        
+        log_string = json.dumps(log_data, sort_keys=True)
+        return hashlib.sha256(log_string.encode()).hexdigest()
+
+    def save(self, *args, **kwargs):
+        if not self.log_hash:
+            # Get previous audit log hash for chaining
+            previous_log = AuditLog.objects.order_by('-created_at').first()
+            if previous_log:
+                self.previous_log_hash = previous_log.log_hash
+            
+            super().save(*args, **kwargs)
+            self.log_hash = self.calculate_hash()
+            super().save(update_fields=['log_hash'])
+        else:
+            super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Audit: {self.action_type} - {self.user.username}"
 

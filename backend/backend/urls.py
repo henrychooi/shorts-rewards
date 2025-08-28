@@ -6,7 +6,8 @@ from api.views import (
     CreateUserView, NoteListCreate, NoteDelete,
     ShortsListView, ShortCreateView, ShortDetailView,
     toggle_like, add_comment, get_comments, track_view,
-    user_shorts, user_profile, wallet_detail, wallet_transactions
+    user_shorts, user_profile, wallet_detail, wallet_transactions,
+    verify_transaction, audit_log, wallet_integrity_report
 )
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -35,6 +36,9 @@ urlpatterns = [
     # Wallet endpoints
     path("api/wallet/", wallet_detail, name="wallet-detail"),
     path("api/wallet/transactions/", wallet_transactions, name="wallet-transactions"),
+    path("api/wallet/verify/<uuid:transaction_id>/", verify_transaction, name="verify-transaction"),
+    path("api/wallet/audit/", audit_log, name="audit-log"),
+    path("api/wallet/integrity/", wallet_integrity_report, name="wallet-integrity"),
 ]
 
 # Serve media files during development

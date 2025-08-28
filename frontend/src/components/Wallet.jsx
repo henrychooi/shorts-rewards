@@ -5,8 +5,10 @@ import "./Wallet.css";
 const Wallet = ({ onClose }) => {
   const [walletData, setWalletData] = useState(null);
   const [transactions, setTransactions] = useState([]);
+  const [integrityReport, setIntegrityReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showIntegrityDetails, setShowIntegrityDetails] = useState(false);
 
   useEffect(() => {
     loadWalletData();
@@ -21,9 +23,13 @@ const Wallet = ({ onClose }) => {
       const walletResponse = await api.get("/api/wallet/");
       setWalletData(walletResponse.data);
 
-      // Load transaction history
+      // Load transaction history with blockchain verification
       const transactionsResponse = await api.get("/api/wallet/transactions/");
       setTransactions(transactionsResponse.data);
+
+      // Load integrity report
+      const integrityResponse = await api.get("/api/wallet/integrity/");
+      setIntegrityReport(integrityResponse.data);
     } catch (error) {
       console.error("Error loading wallet data:", error);
       setError("Failed to load wallet data");

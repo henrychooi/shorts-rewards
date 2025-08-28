@@ -29,11 +29,35 @@ function Form({ route, method }) {
         navigate("/login");
       }
     } catch (error) {
-      if (error.response && error.response.data) {
-          setErrors(error.response.data);
+      console.error("Authentication error:", error);
+
+      if (error.response) {
+        // Server responded with error status
+        const status = error.response.status;
+        const data = error.response.data;
+
+        if (status === 401) {
+          setErrors({
+            detail: "Invalid username or password. Please try again.",
+          });
+        } else if (status === 400) {
+          setErrors(data);
+        } else if (status >= 500) {
+          setErrors({ detail: "Server error. Please try again later." });
         } else {
-          setErrors({ detail: "An unexpected error occurred." });
+          setErrors(data || { detail: "Login failed. Please try again." });
         }
+      } else if (error.request) {
+        // Network error
+        setErrors({
+          detail: "Network error. Please check your connection and try again.",
+        });
+      } else {
+        // Other error
+        setErrors({
+          detail: "An unexpected error occurred. Please try again.",
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -44,23 +68,31 @@ function Form({ route, method }) {
     if (errors) {
       setErrors(null);
     }
-  }
+  };
 
   const handlePasswordChange = (e) => {
     setPassword(e.target.value);
     if (errors) {
       setErrors(null);
     }
-  }
+  };
 
   return (
     <form onSubmit={handleSubmit} className="form-container">
       <h1>{name}</h1>
       {errors && (
         <div className="error-message">
-          {Object.keys(errors).map(key => (
-            <p key={key}>{`${key}: ${errors[key].join(', ')}`}</p>
-          ))}
+          {errors.detail ? (
+            <p>{errors.detail}</p>
+          ) : (
+            Object.keys(errors).map((key) => (
+              <p key={key}>
+                {Array.isArray(errors[key])
+                  ? `${key}: ${errors[key].join(", ")}`
+                  : `${key}: ${errors[key]}`}
+              </p>
+            ))
+          )}
         </div>
       )}
       <input
@@ -81,7 +113,7 @@ function Form({ route, method }) {
         {loading ? "Loading..." : name}
       </button>
       {method === "login" && (
-       <p>
+        <p>
           Don't have an account? <Link to="/register">Register here</Link>
         </p>
       )}

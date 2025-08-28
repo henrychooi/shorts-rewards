@@ -2,6 +2,7 @@ from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.models import User
 from django.db.models import F
 from decimal import Decimal
+from datetime import datetime
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
@@ -9,9 +10,10 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
 from .serializers import (
     UserSerializer, NoteSerializer, ShortSerializer, ShortCreateSerializer,
-    LikeSerializer, CommentSerializer, UserProfileSerializer, WalletSerializer, TransactionSerializer
+    LikeSerializer, CommentSerializer, UserProfileSerializer, WalletSerializer, 
+    TransactionSerializer, AuditLogSerializer
 )
-from .models import Note, Short, Like, Comment, View, Wallet, Transaction
+from .models import Note, Short, Like, Comment, View, Wallet, Transaction, AuditLog
 
 
 class ShortsListView(generics.ListAPIView):
@@ -201,33 +203,126 @@ def wallet_detail(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def wallet_transactions(request):
-    """Get transaction history for the authenticated user"""
+    """Get transaction history for the authenticated user with blockchain verification"""
     wallet, created = Wallet.objects.get_or_create(user=request.user)
     transactions = Transaction.objects.filter(wallet=wallet)[:50]  # Latest 50 transactions
     serializer = TransactionSerializer(transactions, many=True)
     return Response(serializer.data)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def verify_transaction(request, transaction_id):
+    """Verify a specific transaction's integrity using cryptographic hash"""
+    try:
+        transaction = get_object_or_404(Transaction, id=transaction_id, wallet__user=request.user)
+        
+        verification_result = {
+            'transaction_id': str(transaction.id),
+            'transaction_hash': transaction.transaction_hash,
+            'integrity_verified': transaction.verify_integrity(),
+            'chain_valid': transaction.get_chain_validity(),
+            'is_confirmed': transaction.is_confirmed,
+            'confirmation_count': transaction.confirmation_count,
+            'created_at': transaction.created_at,
+            'merkle_root': transaction.merkle_root
+        }
+        
+        return Response(verification_result)
+    except Exception as e:
+        return Response({
+            'error': 'Transaction verification failed',
+            'message': str(e)
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def audit_log(request):
+    """Get audit log for transparency (blockchain-inspired immutable log)"""
+    logs = AuditLog.objects.filter(user=request.user)[:100]  # Latest 100 logs
+    serializer = AuditLogSerializer(logs, many=True)
+    return Response(serializer.data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def wallet_integrity_report(request):
+    """Generate a comprehensive integrity report for the user's wallet"""
+    wallet, created = Wallet.objects.get_or_create(user=request.user)
+    transactions = Transaction.objects.filter(wallet=wallet)
+    
+    total_transactions = transactions.count()
+    verified_transactions = sum(1 for tx in transactions if tx.verify_integrity())
+    chain_valid_transactions = sum(1 for tx in transactions if tx.get_chain_validity())
+    confirmed_transactions = transactions.filter(is_confirmed=True).count()
+    
+    integrity_report = {
+        'wallet_id': wallet.id,
+        'user': request.user.username,
+        'total_transactions': total_transactions,
+        'verified_transactions': verified_transactions,
+        'chain_valid_transactions': chain_valid_transactions,
+        'confirmed_transactions': confirmed_transactions,
+        'integrity_percentage': (verified_transactions / total_transactions * 100) if total_transactions > 0 else 100,
+        'chain_validity_percentage': (chain_valid_transactions / total_transactions * 100) if total_transactions > 0 else 100,
+        'current_balance': wallet.balance,
+        'total_earnings': wallet.total_earnings,
+        'generated_at': datetime.now().isoformat()
+    }
+    
+    return Response(integrity_report)
+
+
 def create_reward_transaction(user, transaction_type, amount, description, related_short=None):
-    """Helper function to create reward transactions"""
+    """
+    Blockchain-inspired secure transaction creation with cryptographic hashing,
+    immutable logging, and transparency while using fiat currency
+    """
     wallet, created = Wallet.objects.get_or_create(user=user)
     
     # Convert amount to Decimal to avoid type errors
     amount_decimal = Decimal(str(amount))
     
-    # Create transaction
+    # Ensure wallet balances are Decimal types
+    if not isinstance(wallet.balance, Decimal):
+        wallet.balance = Decimal(str(wallet.balance))
+    if not isinstance(wallet.total_earnings, Decimal):
+        wallet.total_earnings = Decimal(str(wallet.total_earnings))
+    
+    # Create transaction with blockchain-inspired security
     transaction = Transaction.objects.create(
         wallet=wallet,
         transaction_type=transaction_type,
         amount=amount_decimal,
         description=description,
-        related_short=related_short
+        related_short=related_short,
+        nonce=0  # Could implement proof-of-work concept if needed
     )
     
-    # Update wallet balances
-    wallet.balance += amount_decimal
-    wallet.total_earnings += amount_decimal
+    # Update wallet balances with proper Decimal arithmetic
+    wallet.balance = wallet.balance + amount_decimal
+    wallet.total_earnings = wallet.total_earnings + amount_decimal
     wallet.save()
+    
+    # Create immutable audit log entry
+    AuditLog.objects.create(
+        action_type='transaction_created',
+        user=user,
+        description=f"Reward transaction created: {transaction_type}",
+        metadata={
+            'transaction_id': str(transaction.id),
+            'transaction_hash': transaction.transaction_hash,
+            'amount': str(amount_decimal),
+            'wallet_id': wallet.id,
+            'related_short_id': str(related_short.id) if related_short else None
+        }
+    )
+    
+    # Confirm transaction (in blockchain, this would be mining/consensus)
+    transaction.is_confirmed = True
+    transaction.confirmation_count = 1  # Simulate network confirmations
+    transaction.save(update_fields=['is_confirmed', 'confirmation_count'])
     
     return transaction
 

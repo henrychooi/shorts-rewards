@@ -1,6 +1,6 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
-from .models import Note, Short, Like, Comment, View, Wallet, Transaction
+from .models import Note, Short, Like, Comment, View, Wallet, Transaction, AuditLog
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -106,9 +106,29 @@ class NoteSerializer(serializers.ModelSerializer):
 
 
 class TransactionSerializer(serializers.ModelSerializer):
+    integrity_verified = serializers.SerializerMethodField()
+    chain_valid = serializers.SerializerMethodField()
+    
     class Meta:
         model = Transaction
-        fields = ["id", "transaction_type", "amount", "description", "related_short", "created_at"]
+        fields = [
+            "id", "transaction_type", "amount", "description", "related_short", 
+            "created_at", "transaction_hash", "previous_hash", "merkle_root",
+            "is_confirmed", "confirmation_count", "integrity_verified", "chain_valid"
+        ]
+    
+    def get_integrity_verified(self, obj):
+        return obj.verify_integrity()
+    
+    def get_chain_valid(self, obj):
+        return obj.get_chain_validity()
+
+
+class AuditLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AuditLog
+        fields = ["id", "action_type", "description", "metadata", "log_hash", 
+                 "previous_log_hash", "created_at"]
 
 
 class WalletSerializer(serializers.ModelSerializer):
