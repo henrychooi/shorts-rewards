@@ -1,6 +1,6 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
-from .models import Note, Short, Like, Comment, View
+from .models import Note, Short, Like, Comment, View, Wallet, Transaction
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -18,16 +18,20 @@ class UserSerializer(serializers.ModelSerializer):
 class UserProfileSerializer(serializers.ModelSerializer):
     shorts_count = serializers.SerializerMethodField()
     total_likes = serializers.SerializerMethodField()
+    total_views = serializers.SerializerMethodField()
     
     class Meta:
         model = User
-        fields = ["id", "username", "date_joined", "shorts_count", "total_likes"]
+        fields = ["id", "username", "date_joined", "shorts_count", "total_likes", "total_views"]
     
     def get_shorts_count(self, obj):
         return obj.shorts.filter(is_active=True).count()
     
     def get_total_likes(self, obj):
         return sum(short.like_count for short in obj.shorts.filter(is_active=True))
+    
+    def get_total_views(self, obj):
+        return sum(short.view_count for short in obj.shorts.filter(is_active=True))
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -99,3 +103,19 @@ class NoteSerializer(serializers.ModelSerializer):
         model = Note
         fields = ["id", "title", "content", "created_at", "author"]
         extra_kwargs = {"author": {"read_only": True}}
+
+
+class TransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Transaction
+        fields = ["id", "transaction_type", "amount", "description", "related_short", "created_at"]
+
+
+class WalletSerializer(serializers.ModelSerializer):
+    view_earnings = serializers.ReadOnlyField()
+    like_earnings = serializers.ReadOnlyField()
+    comment_earnings = serializers.ReadOnlyField()
+    
+    class Meta:
+        model = Wallet
+        fields = ["balance", "total_earnings", "view_earnings", "like_earnings", "comment_earnings", "created_at"]

@@ -88,6 +88,12 @@ const Profile = ({ username, onClose }) => {
             </div>
             <div className="stat">
               <span className="stat-number">
+                {formatCount(profile.total_views || 0)}
+              </span>
+              <span className="stat-label">Views</span>
+            </div>
+            <div className="stat">
+              <span className="stat-number">
                 {formatCount(profile.total_likes)}
               </span>
               <span className="stat-label">Likes</span>
@@ -141,9 +147,6 @@ const Profile = ({ username, onClose }) => {
                       </span>
                     </div>
                   </div>
-                  {short.title && (
-                    <div className="thumbnail-title">{short.title}</div>
-                  )}
                 </div>
               ))
             ) : (

@@ -1,6 +1,7 @@
 from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.models import User
 from django.db.models import F
+from decimal import Decimal
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
@@ -8,9 +9,9 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
 from .serializers import (
     UserSerializer, NoteSerializer, ShortSerializer, ShortCreateSerializer,
-    LikeSerializer, CommentSerializer, UserProfileSerializer
+    LikeSerializer, CommentSerializer, UserProfileSerializer, WalletSerializer, TransactionSerializer
 )
-from .models import Note, Short, Like, Comment, View
+from .models import Note, Short, Like, Comment, View, Wallet, Transaction
 
 
 class ShortsListView(generics.ListAPIView):
@@ -52,6 +53,15 @@ def toggle_like(request, short_id):
         liked = False
     else:
         liked = True
+        # Award like reward to the short's author (only when liked, not unliked)
+        like_reward = 0.01  # $0.01 per like
+        create_reward_transaction(
+            user=short.author,
+            transaction_type='like_reward',
+            amount=like_reward,
+            description=f"Like reward for '{short.title or 'Untitled'}'"[:255],
+            related_short=short
+        )
     
     return Response({
         'liked': liked,
@@ -66,7 +76,18 @@ def add_comment(request, short_id):
     serializer = CommentSerializer(data=request.data)
     
     if serializer.is_valid():
-        serializer.save(user=request.user, short=short)
+        comment = serializer.save(user=request.user, short=short)
+        
+        # Award comment reward to the short's author
+        comment_reward = 10.005  # $10.005 per comment
+        create_reward_transaction(
+            user=short.author,
+            transaction_type='comment_reward',
+            amount=comment_reward,
+            description=f"Comment reward for '{short.title or 'Untitled'}'"[:255],
+            related_short=short
+        )
+        
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -95,6 +116,16 @@ def track_view(request, short_id):
         
         # Get the updated count to return
         short.refresh_from_db()
+        
+        # Award view reward to the short's author (small amount per view)
+        view_reward = 0.001  # $0.001 per view
+        create_reward_transaction(
+            user=short.author,
+            transaction_type='view_reward',
+            amount=view_reward,
+            description=f"View reward for '{short.title or 'Untitled'}'"[:255],
+            related_short=short
+        )
         
         print(f"DEBUG: View incremented for short {short_id}. New view count: {short.view_count}")
         
@@ -156,6 +187,49 @@ class NoteDelete(generics.DestroyAPIView):
     def get_queryset(self):
         user = self.request.user
         return Note.objects.filter(author=user)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def wallet_detail(request):
+    """Get wallet information for the authenticated user"""
+    wallet, created = Wallet.objects.get_or_create(user=request.user)
+    serializer = WalletSerializer(wallet)
+    return Response(serializer.data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def wallet_transactions(request):
+    """Get transaction history for the authenticated user"""
+    wallet, created = Wallet.objects.get_or_create(user=request.user)
+    transactions = Transaction.objects.filter(wallet=wallet)[:50]  # Latest 50 transactions
+    serializer = TransactionSerializer(transactions, many=True)
+    return Response(serializer.data)
+
+
+def create_reward_transaction(user, transaction_type, amount, description, related_short=None):
+    """Helper function to create reward transactions"""
+    wallet, created = Wallet.objects.get_or_create(user=user)
+    
+    # Convert amount to Decimal to avoid type errors
+    amount_decimal = Decimal(str(amount))
+    
+    # Create transaction
+    transaction = Transaction.objects.create(
+        wallet=wallet,
+        transaction_type=transaction_type,
+        amount=amount_decimal,
+        description=description,
+        related_short=related_short
+    )
+    
+    # Update wallet balances
+    wallet.balance += amount_decimal
+    wallet.total_earnings += amount_decimal
+    wallet.save()
+    
+    return transaction
 
 
 class CreateUserView(generics.CreateAPIView):

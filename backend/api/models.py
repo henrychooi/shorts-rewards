@@ -166,3 +166,68 @@ class Note(models.Model):
     def __str__(self):
         return self.title
 
+
+class Wallet(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='wallet')
+    balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    total_earnings = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user.username}'s Wallet - ${self.balance}"
+
+    @property
+    def view_earnings(self):
+        return sum(
+            t.amount for t in self.transactions.filter(
+                transaction_type='view_reward', 
+                amount__gt=0
+            )
+        )
+
+    @property
+    def like_earnings(self):
+        return sum(
+            t.amount for t in self.transactions.filter(
+                transaction_type='like_reward', 
+                amount__gt=0
+            )
+        )
+
+    @property
+    def comment_earnings(self):
+        return sum(
+            t.amount for t in self.transactions.filter(
+                transaction_type='comment_reward', 
+                amount__gt=0
+            )
+        )
+
+
+class Transaction(models.Model):
+    TRANSACTION_TYPES = [
+        ('view_reward', 'View Reward'),
+        ('like_reward', 'Like Reward'),
+        ('comment_reward', 'Comment Reward'),
+        ('withdrawal', 'Withdrawal'),
+        ('bonus', 'Bonus'),
+    ]
+
+    wallet = models.ForeignKey(Wallet, on_delete=models.CASCADE, related_name='transactions')
+    transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
+    amount = models.DecimalField(max_digits=10, decimal_places=4)
+    description = models.CharField(max_length=255)
+    related_short = models.ForeignKey(Short, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['wallet', '-created_at']),
+            models.Index(fields=['transaction_type']),
+        ]
+
+    def __str__(self):
+        return f"{self.wallet.user.username} - {self.transaction_type} - ${self.amount}"
+

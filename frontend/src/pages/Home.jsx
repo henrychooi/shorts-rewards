@@ -3,11 +3,13 @@ import ShortsFeed from "../components/ShortsFeed";
 import VideoUpload from "../components/VideoUpload";
 import Navigation from "../components/Navigation";
 import Profile from "./Profile";
+import Wallet from "../components/Wallet";
 import api from "../api";
 import "../styles/Home.css";
 
 function Home() {
   const [showUpload, setShowUpload] = useState(false);
+  const [showWallet, setShowWallet] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [refreshFeed, setRefreshFeed] = useState(0);
   const [currentView, setCurrentView] = useState("home");
@@ -17,8 +19,6 @@ function Home() {
     getCurrentUser();
   }, []);
 
-
-
   const getCurrentUser = () => {
     const storedUsername = localStorage.getItem("username");
     if (storedUsername) {
@@ -27,7 +27,6 @@ function Home() {
       setCurrentUser({ username: "user" });
     }
   };
-
 
   const handleUploadSuccess = () => {
     setShowUpload(false);
@@ -44,6 +43,14 @@ function Home() {
     setProfileUsername(null);
   };
 
+  const handleWalletView = () => {
+    setShowWallet(true);
+  };
+
+  const handleCloseWallet = () => {
+    setShowWallet(false);
+  };
+
   const renderCurrentView = () => {
     switch (currentView) {
       case "profile":
@@ -52,7 +59,9 @@ function Home() {
         );
       case "home":
       default:
-        return <ShortsFeed key={refreshFeed} onProfileClick={handleProfileView} />;
+        return (
+          <ShortsFeed key={refreshFeed} onProfileClick={handleProfileView} />
+        );
     }
   };
 
@@ -61,6 +70,7 @@ function Home() {
       <Navigation
         onCreateShort={() => setShowUpload(true)}
         onProfileClick={() => handleProfileView()}
+        onWalletClick={handleWalletView}
         currentUser={currentUser}
         currentView={currentView}
         onViewChange={setCurrentView}
@@ -74,6 +84,8 @@ function Home() {
           onClose={() => setShowUpload(false)}
         />
       )}
+
+      {showWallet && <Wallet onClose={handleCloseWallet} />}
     </div>
   );
 }

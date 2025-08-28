@@ -6,7 +6,7 @@ from api.views import (
     CreateUserView, NoteListCreate, NoteDelete,
     ShortsListView, ShortCreateView, ShortDetailView,
     toggle_like, add_comment, get_comments, track_view,
-    user_shorts, user_profile
+    user_shorts, user_profile, wallet_detail, wallet_transactions
 )
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -31,6 +31,10 @@ urlpatterns = [
     path("api/shorts/<uuid:short_id>/view/", track_view, name="track-view"),
     path("api/my-shorts/", user_shorts, name="user-shorts"),
     path("api/profile/<str:username>/", user_profile, name="user-profile"),
+    
+    # Wallet endpoints
+    path("api/wallet/", wallet_detail, name="wallet-detail"),
+    path("api/wallet/transactions/", wallet_transactions, name="wallet-transactions"),
 ]
 
 # Serve media files during development
