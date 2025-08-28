@@ -7,6 +7,7 @@ import "../styles/Form.css";
 function Form({ route, method }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [errors, setErrors] = useState(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -15,6 +16,7 @@ function Form({ route, method }) {
   const handleSubmit = async (e) => {
     setLoading(true);
     e.preventDefault();
+    setErrors(null);
 
     try {
       const res = await api.post(route, { username, password });
@@ -26,36 +28,66 @@ function Form({ route, method }) {
         navigate("/login");
       }
     } catch (error) {
-      alert(error);
+      if (error.response && error.response.data) {
+          setErrors(error.response.data);
+        } else {
+          setErrors({ detail: "An unexpected error occurred." });
+        }
     } finally {
       setLoading(false);
     }
   };
 
+  const handleUsernameChange = (e) => {
+    setUsername(e.target.value);
+    if (errors) {
+      setErrors(null);
+    }
+  }
+
+  const handlePasswordChange = (e) => {
+    setPassword(e.target.value);
+    if (errors) {
+      setErrors(null);
+    }
+  }
+
   return (
     <form onSubmit={handleSubmit} className="form-container">
       <h1>{name}</h1>
+      {errors && (
+        <div className="error-message">
+          {Object.keys(errors).map(key => (
+            <p key={key}>{`${key}: ${errors[key].join(', ')}`}</p>
+          ))}
+        </div>
+      )}
       <input
         className="form-input"
         type="text"
         value={username}
-        onChange={(e) => setUsername(e.target.value)}
+        onChange={handleUsernameChange}
         placeholder="Username"
       />
       <input
         className="form-input"
         type="password"
         value={password}
-        onChange={(e) => setPassword(e.target.value)}
+        onChange={handlePasswordChange}
         placeholder="Password"
       />
-      <button type="submit" className="form-button">
-        {name}
+      <button type="submit" className="form-button" disabled={loading}>
+        {loading ? "Loading..." : name}
       </button>
       {method === "login" && (
-        <Link to="/register" className="form-button">
-          Register
-        </Link>
+       <p>
+          Don't have an account? <Link to="/register">Register here</Link>
+        </p>
+      )}
+      {method !== "login" && (
+        <p>
+          Already have an account? <Link to="/login">Login here</Link>
+        </p>
       )}
     </form>
   );
