@@ -3,7 +3,7 @@ import VideoPlayer from "./VideoPlayer";
 import { shortsApi } from "../services/shortsApi";
 import "./ShortsFeed.css";
 
-const ShortsFeed = () => {
+const ShortsFeed = ({ onProfileClick }) => {
   const [shorts, setShorts] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -136,15 +136,30 @@ const ShortsFeed = () => {
     );
   }
 
-  if (shorts.length === 0) {
+  if (shorts.length === 0 && !loading && !error) {
+    const dummyShort = {
+      id: 1,
+      title: "Dummy Short",
+      description: "This is a dummy short for testing purposes.",
+      video: "", // no video needed for this test
+      author: { username: "testuser123" },
+      created_at: new Date().toISOString(),
+      view_count: 0,
+      like_count: 0,
+      comment_count: 0,
+      is_liked: false,
+      comments: [],
+    };
     return (
-      <div className="shorts-empty">
-        <div className="empty-content">
-          <svg width="80" height="80" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4zM14 13h-3v3H9v-3H6v-2h3V8h2v3h3v2z" />
-          </svg>
-          <h3>No shorts yet!</h3>
-          <p>Be the first to create an amazing short video</p>
+      <div className="shorts-feed">
+        <div className="shorts-container" ref={containerRef}>
+          <div className="short-item">
+            <VideoPlayer
+              short={dummyShort}
+              isActive={true}
+              onProfileClick={onProfileClick}
+            />
+          </div>
         </div>
       </div>
     );
@@ -162,7 +177,11 @@ const ShortsFeed = () => {
       >
         {shorts.map((short, index) => (
           <div key={short.id} className="short-item">
-            <VideoPlayer short={short} isActive={index === currentIndex} />
+            <VideoPlayer
+              short={short}
+              isActive={index === currentIndex}
+              onProfileClick={onProfileClick}
+            />
           </div>
         ))}
       </div>

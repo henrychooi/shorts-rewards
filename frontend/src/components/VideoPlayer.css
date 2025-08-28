@@ -178,17 +178,22 @@
 }
 
 .comments-overlay {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: rgba(0, 0, 0, 0.95);
+  position: fixed; /* Use fixed to position relative to viewport */
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(10, 10, 10, 0.85); /* Darker, slightly more transparent */
   backdrop-filter: blur(20px);
-  border-radius: 16px 16px 0 0;
-  max-height: 70vh;
+  border-radius: 16px;
+  width: 90vw; /* Use viewport width */
+  max-width: 500px;
+  height: 70vh; /* Use viewport height */
+  max-height: 600px;
   z-index: 10;
   display: flex;
   flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .comments-header {
@@ -375,4 +380,14 @@
 
 .comments-list::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.5);
+}
+
+.page-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 9;
 }

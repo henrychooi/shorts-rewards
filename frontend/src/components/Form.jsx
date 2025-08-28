@@ -1,6 +1,6 @@
 import { useState } from "react";
 import api from "../api";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { ACCESS_TOKEN, REFRESH_TOKEN } from "../constants";
 import "../styles/Form.css";
 
@@ -52,6 +52,11 @@ function Form({ route, method }) {
       <button type="submit" className="form-button">
         {name}
       </button>
+      {method === "login" && (
+        <Link to="/register" className="form-button">
+          Register
+        </Link>
+      )}
     </form>
   );
 }

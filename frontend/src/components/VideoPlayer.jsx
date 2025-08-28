@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { shortsApi } from "../services/shortsApi";
 import "./VideoPlayer.css";
 
-const VideoPlayer = ({ short, isActive }) => {
+const VideoPlayer = ({ short, isActive, onProfileClick }) => {
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLiked, setIsLiked] = useState(short.is_liked);
@@ -137,8 +137,11 @@ const VideoPlayer = ({ short, isActive }) => {
         )}
 
         <div className="video-info">
-          <div className="user-info">
-            <div className="avatar">
+          <div
+            className="user-info"
+            onClick={() => onProfileClick && onProfileClick(short.author.username)}
+            style={{ cursor: "pointer" }}
+          >            <div className="avatar">
               {short.author.username.charAt(0).toUpperCase()}
             </div>
             <div className="user-details">
@@ -199,6 +202,8 @@ const VideoPlayer = ({ short, isActive }) => {
       </div>
 
       {showComments && (
+      <>
+        <div className="page-overlay" onClick={toggleComments}></div>
         <div className="comments-overlay">
           <div className="comments-header">
             <h3>{formatCount(short.comment_count)} Comments</h3>
@@ -255,9 +260,11 @@ const VideoPlayer = ({ short, isActive }) => {
             </button>
           </form>
         </div>
+      </>
       )}
     </div>
   );
 };
+
 
 export default VideoPlayer;

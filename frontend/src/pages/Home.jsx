@@ -62,7 +62,7 @@ function Home() {
         );
       case "home":
       default:
-        return <ShortsFeed key={refreshFeed} />;
+        return <ShortsFeed key={refreshFeed} onProfileClick={handleProfileView} />;
     }
   };
 
