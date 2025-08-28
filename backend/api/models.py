@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 import uuid
+import os
 
 
 class Short(models.Model):
@@ -15,7 +16,7 @@ class Short(models.Model):
     view_count = models.PositiveIntegerField(default=0)
     duration = models.FloatField(help_text="Duration in seconds", blank=True, null=True)
     is_active = models.BooleanField(default=True)
-
+    
     class Meta:
         ordering = ['-created_at']
         indexes = [
@@ -23,9 +24,70 @@ class Short(models.Model):
             models.Index(fields=['author']),
             models.Index(fields=['view_count']),
         ]
-
+    
     def __str__(self):
         return f"{self.title or 'Untitled'} by {self.author.username}"
+    
+    def video_exists(self):
+        """Check if the video file actually exists on filesystem"""
+        if self.video:
+            try:
+                return os.path.exists(self.video.path)
+            except ValueError:
+                # Handle case where video field has no file
+                return False
+        return False
+    
+    def thumbnail_exists(self):
+        """Check if the thumbnail file actually exists on filesystem"""
+        if self.thumbnail:
+            try:
+                return os.path.exists(self.thumbnail.path)
+            except ValueError:
+                return False
+        return False
+    
+    def validate_files(self):
+        """Check if both video and thumbnail files exist, clean up if not"""
+        files_valid = True
+        
+        if not self.video_exists():
+            files_valid = False
+        
+        if self.thumbnail and not self.thumbnail_exists():
+            # Remove thumbnail reference if file doesn't exist
+            self.thumbnail = None
+            self.save(update_fields=['thumbnail'])
+        
+        return files_valid
+    
+    @classmethod
+    def cleanup_orphaned_records(cls):
+        """Remove database entries for videos that don't exist"""
+        orphaned_count = 0
+        
+        for short in cls.objects.all():
+            if not short.video_exists():
+                print(f"Deleting orphaned record: {short.title} (ID: {short.id})")
+                short.delete()
+                orphaned_count += 1
+            else:
+                # Check thumbnail separately and clean it up if missing
+                if short.thumbnail and not short.thumbnail_exists():
+                    print(f"Removing missing thumbnail for: {short.title}")
+                    short.thumbnail = None
+                    short.save(update_fields=['thumbnail'])
+        
+        return orphaned_count
+    
+    @classmethod
+    def get_valid_shorts(cls):
+        """Get only shorts that have valid video files"""
+        valid_shorts = []
+        for short in cls.objects.all():
+            if short.video_exists():
+                valid_shorts.append(short)
+        return valid_shorts
 
     @property
     def like_count(self):
