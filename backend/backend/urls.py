@@ -7,7 +7,8 @@ from api.views import (
     ShortsListView, ShortCreateView, ShortDetailView,
     toggle_like, add_comment, get_comments, track_view,
     user_shorts, user_profile, wallet_detail, wallet_transactions,
-    verify_transaction, audit_log, wallet_integrity_report
+    verify_transaction, audit_log, wallet_integrity_report,
+    track_watch_progress, get_video_analytics, get_user_watch_history
 )
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -30,8 +31,11 @@ urlpatterns = [
     path("api/shorts/<uuid:short_id>/comment/", add_comment, name="add-comment"),
     path("api/shorts/<uuid:short_id>/comments/", get_comments, name="get-comments"),
     path("api/shorts/<uuid:short_id>/view/", track_view, name="track-view"),
+    path("api/shorts/<uuid:short_id>/watch-progress/", track_watch_progress, name="track-watch-progress"),
+    path("api/shorts/<uuid:short_id>/analytics/", get_video_analytics, name="video-analytics"),
     path("api/my-shorts/", user_shorts, name="user-shorts"),
     path("api/profile/<str:username>/", user_profile, name="user-profile"),
+    path("api/watch-history/", get_user_watch_history, name="user-watch-history"),
     
     # Wallet endpoints
     path("api/wallet/", wallet_detail, name="wallet-detail"),

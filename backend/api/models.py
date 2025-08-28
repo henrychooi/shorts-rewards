@@ -101,6 +101,85 @@ class Short(models.Model):
     def comment_count(self):
         return self.comments.count()
 
+    # Enhanced analytics properties
+    @property
+    def total_views(self):
+        """Total number of views (including rewatches)"""
+        return self.views.count()
+
+    @property
+    def unique_viewers(self):
+        """Number of unique viewers"""
+        return self.views.values('user', 'ip_address').distinct().count()
+
+    @property
+    def average_watch_percentage(self):
+        """Average watch percentage across all views"""
+        views = self.views.all()
+        if not views:
+            return 0
+        total_percentage = sum(view.watch_percentage for view in views)
+        return total_percentage / len(views)
+
+    @property
+    def completion_rate(self):
+        """Percentage of views that were completed (80%+)"""
+        total_views = self.total_views
+        if total_views == 0:
+            return 0
+        completed_views = self.views.filter(is_complete_view=True).count()
+        return (completed_views / total_views) * 100
+
+    @property
+    def total_rewatches(self):
+        """Total number of rewatches across all viewers and sessions"""
+        # Count additional sessions beyond the first for each user
+        total_sessions = 0
+        if self.views.exists():
+            # Group by user and count sessions per user
+            from django.db.models import Count
+            user_session_counts = self.views.values('user').annotate(
+                session_count=Count('session_id', distinct=True)
+            )
+            # Total rewatches = total sessions - unique users (first view per user doesn't count as rewatch)
+            total_sessions = sum(item['session_count'] for item in user_session_counts)
+            unique_users = len([item for item in user_session_counts if item['user'] is not None])
+            return max(0, total_sessions - unique_users)
+        return 0
+
+    @property
+    def unique_rewatchers(self):
+        """Number of users who have watched this video more than once"""
+        from django.db.models import Count
+        return self.views.values('user').annotate(
+            session_count=Count('session_id', distinct=True)
+        ).filter(session_count__gt=1, user__isnull=False).count()
+
+    @property
+    def average_engagement_score(self):
+        """Average engagement score across all views"""
+        views = self.views.all()
+        if not views:
+            return 0
+        total_score = sum(view.engagement_score for view in views)
+        return total_score / len(views)
+
+    def get_analytics_summary(self):
+        """Get comprehensive analytics for this video"""
+        return {
+            'total_views': self.total_views,
+            'unique_viewers': self.unique_viewers,
+            'view_count': self.view_count,  # Original field
+            'like_count': self.like_count,
+            'comment_count': self.comment_count,
+            'average_watch_percentage': round(self.average_watch_percentage, 2),
+            'completion_rate': round(self.completion_rate, 2),
+            'total_rewatches': self.total_rewatches,
+            'unique_rewatchers': self.unique_rewatchers,
+            'average_engagement_score': round(self.average_engagement_score, 2),
+            'duration': self.duration,
+        }
+
 
 class Like(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -148,16 +227,86 @@ class View(models.Model):
     ip_address = models.GenericIPAddressField()
     created_at = models.DateTimeField(auto_now_add=True)
     watch_duration = models.FloatField(default=0.0, help_text="Duration watched in seconds")
+    
+    # Enhanced engagement tracking
+    watch_percentage = models.FloatField(default=0.0, help_text="Percentage of video watched (0-100)")
+    max_watch_position = models.FloatField(default=0.0, help_text="Furthest position reached in seconds")
+    is_complete_view = models.BooleanField(default=False, help_text="True if watched >= 80%")
+    rewatch_count = models.PositiveIntegerField(default=0, help_text="Number of times rewatched")
+    engagement_score = models.FloatField(default=0.0, help_text="Calculated engagement score")
+    
+    # Session tracking
+    session_id = models.CharField(max_length=64, blank=True, help_text="Unique session identifier")
+    last_position = models.FloatField(default=0.0, help_text="Last watched position in seconds")
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         indexes = [
             models.Index(fields=['short', 'ip_address']),
             models.Index(fields=['created_at']),
+            models.Index(fields=['user', 'short']),
+            models.Index(fields=['session_id']),
+            models.Index(fields=['watch_percentage']),
         ]
+        # Unique constraint to prevent duplicate views per user/session
+        unique_together = [['user', 'short', 'session_id']]
+
+    def calculate_watch_percentage(self):
+        """Calculate watch percentage based on video duration"""
+        if self.short.duration and self.short.duration > 0:
+            # Method 1: Use max_watch_position (how far they got in a single viewing)
+            position_percentage = (self.max_watch_position / self.short.duration) * 100
+            
+            # Method 2: Use total watch duration (if they rewatched, they definitely completed it)
+            duration_percentage = (self.watch_duration / self.short.duration) * 100
+            
+            # Use the higher of the two - if they watched 10 seconds of a 5-second video,
+            # they definitely completed it (100%), even if max position was only 4.67 seconds
+            self.watch_percentage = min(max(position_percentage, duration_percentage), 100)
+        else:
+            self.watch_percentage = 0
+        return self.watch_percentage
+
+    def calculate_engagement_score(self):
+        """Calculate engagement score based on watch percentage, completion, and rewatches"""
+        score = 0
+        
+        # Base score from watch percentage (0-50 points)
+        score += (self.watch_percentage / 100) * 50
+        
+        # Completion bonus (20 points)
+        if self.is_complete_view:
+            score += 20
+        
+        # Rewatch bonus (5 points per rewatch, max 30 points)
+        score += min(self.rewatch_count * 5, 30)
+        
+        self.engagement_score = min(score, 100)
+        return self.engagement_score
+
+    def update_watch_progress(self, current_position, duration_watched):
+        """Update watch progress and calculate metrics"""
+        self.last_position = current_position
+        self.max_watch_position = max(self.max_watch_position, current_position)
+        self.watch_duration = duration_watched
+        
+        # Calculate percentage
+        self.calculate_watch_percentage()
+
+        # Check if it's a complete view (95% threshold)
+        self.is_complete_view = self.watch_percentage >= 95
+        
+        # Calculate engagement score
+        self.calculate_engagement_score()
+
+    def mark_rewatch(self):
+        """Mark this as a rewatch"""
+        self.rewatch_count += 1
+        self.calculate_engagement_score()
 
     def __str__(self):
         username = self.user.username if self.user else "Anonymous"
-        return f"View by {username} on {self.short.title or 'Untitled'}"
+        return f"View by {username} on {self.short.title or 'Untitled'} ({self.watch_percentage:.1f}%)"
 
 
 # Keep the old Note model for backward compatibility during migration

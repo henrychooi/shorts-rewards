@@ -35,7 +35,7 @@ def reverse_populate_transaction_hashes(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('api', '0002_short_like_comment_view_and_more'),  # Replace with your latest migration
+        ('api', '0001_initial'),  # Fixed to reference the actual existing migration
     ]
 
     operations = [

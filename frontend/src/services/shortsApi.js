@@ -38,6 +38,16 @@ export const shortsApi = {
   trackView: (shortId, watchDuration = 0) =>
     api.post(`/api/shorts/${shortId}/view/`, { watch_duration: watchDuration }),
 
+  // Track detailed watch progress
+  trackWatchProgress: (shortId, progressData) =>
+    api.post(`/api/shorts/${shortId}/watch-progress/`, progressData),
+
+  // Get video analytics
+  getVideoAnalytics: (shortId) => api.get(`/api/shorts/${shortId}/analytics/`),
+
+  // Get user watch history
+  getUserWatchHistory: () => api.get("/api/watch-history/"),
+
   // Get user's shorts
   getUserShorts: () => api.get("/api/my-shorts/"),
 

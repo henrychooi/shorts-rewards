@@ -12,10 +12,23 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState("");
   const [viewTracked, setViewTracked] = useState(false);
-  
+
+  // Enhanced watch tracking
+  const [watchProgress, setWatchProgress] = useState({
+    watchPercentage: 0,
+    isCompleteView: false,
+    rewatchCount: 0,
+    engagementScore: 0,
+  });
+
   const watchTimeRef = useRef(0);
   const watchStartRef = useRef(null);
   const viewTrackingTimer = useRef(null);
+  const progressTrackingTimer = useRef(null);
+  const sessionId = useRef(Math.random().toString(36).substring(2, 15));
+  const hasTrackedInitialView = useRef(false);
+  const lastTrackedPosition = useRef(0);
+  const maxWatchedPosition = useRef(0);
 
   // Handle video play/pause based on isActive
   useEffect(() => {
@@ -23,47 +36,65 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
       videoRef.current.play();
       setIsPlaying(true);
       watchStartRef.current = Date.now();
-      
-      // Start view tracking timer
+
+      // Start view tracking timer (track basic view first)
       if (!viewTracked) {
         viewTrackingTimer.current = setTimeout(() => {
           trackView();
         }, 10); // Track after 0.1 seconds
       }
+
+      // Start progress tracking timer
+      progressTrackingTimer.current = setInterval(() => {
+        trackWatchProgress();
+      }, 2000); // Track progress every 2 seconds
     } else if (videoRef.current) {
       videoRef.current.pause();
       setIsPlaying(false);
-      
-      // Clear tracking timer
+
+      // Clear tracking timers
       if (viewTrackingTimer.current) {
         clearTimeout(viewTrackingTimer.current);
         viewTrackingTimer.current = null;
       }
-      
-      // Update watch time
+
+      if (progressTrackingTimer.current) {
+        clearInterval(progressTrackingTimer.current);
+        progressTrackingTimer.current = null;
+      }
+
+      // Update watch time and track final progress
       if (watchStartRef.current) {
         watchTimeRef.current += (Date.now() - watchStartRef.current) / 1000;
         watchStartRef.current = null;
+        trackWatchProgress(); // Final progress update
       }
     }
 
-    // Cleanup timer on unmount or when isActive changes
+    // Cleanup timers on unmount or when isActive changes
     return () => {
       if (viewTrackingTimer.current) {
         clearTimeout(viewTrackingTimer.current);
         viewTrackingTimer.current = null;
+      }
+      if (progressTrackingTimer.current) {
+        clearInterval(progressTrackingTimer.current);
+        progressTrackingTimer.current = null;
       }
     };
   }, [isActive, viewTracked]);
 
   const trackView = async () => {
     if (viewTracked) return;
-    
+
     try {
       console.log(`Tracking view for short: ${short.id}`);
-      const response = await shortsApi.trackView(short.id, watchTimeRef.current || 1.0);
-      
-      if (response.data.status === 'success') {
+      const response = await shortsApi.trackView(
+        short.id,
+        watchTimeRef.current || 1.0
+      );
+
+      if (response.data.status === "success") {
         setViewTracked(true);
         setViewCount(response.data.view_count);
         console.log(`View tracked! New count: ${response.data.view_count}`);
@@ -73,9 +104,68 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
     }
   };
 
+  const trackWatchProgress = async () => {
+    if (!videoRef.current) return;
+
+    try {
+      const currentTime = videoRef.current.currentTime;
+      const videoDuration = videoRef.current.duration || short.duration;
+
+      // Update total watch time if video is playing
+      if (watchStartRef.current && !videoRef.current.paused) {
+        watchTimeRef.current += (Date.now() - watchStartRef.current) / 1000;
+        watchStartRef.current = Date.now(); // Reset the timer
+      }
+
+      const totalWatchTime = watchTimeRef.current;
+
+      // Don't track if we don't have valid duration
+      if (!videoDuration || videoDuration <= 0) {
+        return;
+      }
+
+      // Update max watched position
+      if (currentTime > maxWatchedPosition.current) {
+        maxWatchedPosition.current = currentTime;
+      }
+
+      // Check if it's a rewatch (user went back to beginning after watching significant portion)
+      const isRewatch =
+        currentTime < lastTrackedPosition.current - 10 &&
+        lastTrackedPosition.current > videoDuration * 0.3;
+
+      const progressData = {
+        current_position: currentTime,
+        duration_watched: totalWatchTime,
+        session_id: sessionId.current,
+        is_rewatch: isRewatch,
+      };
+
+      const response = await shortsApi.trackWatchProgress(
+        short.id,
+        progressData
+      );
+
+      if (response.data.status === "success") {
+        setWatchProgress({
+          watchPercentage: response.data.watch_percentage,
+          isCompleteView: response.data.is_complete_view,
+          rewatchCount: response.data.rewatch_count,
+          engagementScore: response.data.engagement_score,
+        });
+
+        console.log(`Watch progress: ${response.data.watch_percentage}%`);
+      }
+
+      lastTrackedPosition.current = currentTime;
+    } catch (error) {
+      console.error("Error tracking watch progress:", error);
+    }
+  };
+
   const togglePlay = () => {
     if (!videoRef.current) return;
-    
+
     if (videoRef.current.paused) {
       videoRef.current.play();
       setIsPlaying(true);
@@ -145,7 +235,8 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
 
     if (diffInSeconds < 60) return "just now";
     if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
-    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+    if (diffInSeconds < 86400)
+      return `${Math.floor(diffInSeconds / 3600)}h ago`;
     return `${Math.floor(diffInSeconds / 86400)}d ago`;
   };
 
@@ -176,7 +267,9 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
         <div className="video-info">
           <div
             className="user-info"
-            onClick={() => onProfileClick && onProfileClick(short.author.username)}
+            onClick={() =>
+              onProfileClick && onProfileClick(short.author.username)
+            }
             style={{ cursor: "pointer" }}
           >
             <div className="avatar">
@@ -284,7 +377,7 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
                 placeholder="Add a comment..."
                 value={newComment}
                 onChange={(e) => setNewComment(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleComment(e)}
+                onKeyPress={(e) => e.key === "Enter" && handleComment(e)}
                 className="comment-input"
               />
               <button onClick={handleComment} className="comment-submit">

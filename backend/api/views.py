@@ -142,6 +142,138 @@ def track_view(request, short_id):
             'status': 'error',
             'message': f'Failed to track view: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def track_watch_progress(request, short_id):
+    """Track detailed watch progress including position, duration, and rewatches"""
+    try:
+        short = get_object_or_404(Short, id=short_id, is_active=True)
+        
+        # Get data from request
+        current_position = float(request.data.get('current_position', 0))
+        duration_watched = float(request.data.get('duration_watched', 0))
+        session_id = request.data.get('session_id', '')
+        is_rewatch = request.data.get('is_rewatch', False)
+        
+        # Get user's IP address
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip_address = x_forwarded_for.split(',')[0]
+        else:
+            ip_address = request.META.get('REMOTE_ADDR')
+        
+        # Get or create view record - but check for existing views across all sessions
+        # First, check if user has watched this video before (in any session)
+        existing_views = View.objects.filter(
+            user=request.user if request.user.is_authenticated else None,
+            short=short
+        ).exclude(session_id=session_id) if request.user.is_authenticated else []
+        
+        # Get or create view record for current session
+        view_record, created = View.objects.get_or_create(
+            user=request.user if request.user.is_authenticated else None,
+            short=short,
+            session_id=session_id,
+            defaults={
+                'ip_address': ip_address,
+                'watch_duration': duration_watched,
+                'max_watch_position': current_position,
+                'last_position': current_position,
+            }
+        )
+        
+        # If this is a new session but user has watched this video before, it's a rewatch
+        if created and existing_views.exists():
+            view_record.rewatch_count = existing_views.count()  # Count previous sessions as rewatches
+        
+        # Update watch progress
+        if not created:
+            view_record.update_watch_progress(current_position, duration_watched)
+            
+            # Handle in-session rewatch (seeking backwards)
+            if is_rewatch:
+                view_record.mark_rewatch()
+        else:
+            view_record.update_watch_progress(current_position, duration_watched)
+        
+        view_record.save()
+        
+        # Calculate response data
+        response_data = {
+            'status': 'success',
+            'watch_percentage': round(view_record.watch_percentage, 2),
+            'is_complete_view': view_record.is_complete_view,
+            'rewatch_count': view_record.rewatch_count,
+            'engagement_score': round(view_record.engagement_score, 2),
+            'max_watch_position': view_record.max_watch_position,
+        }
+        
+        return Response(response_data)
+        
+    except Exception as e:
+        print(f"ERROR in track_watch_progress: {str(e)}")
+        return Response({
+            'status': 'error',
+            'message': f'Failed to track watch progress: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_video_analytics(request, short_id):
+    """Get comprehensive analytics for a video"""
+    try:
+        short = get_object_or_404(Short, id=short_id, is_active=True)
+        analytics = short.get_analytics_summary()
+        
+        return Response({
+            'status': 'success',
+            'analytics': analytics
+        })
+        
+    except Exception as e:
+        print(f"ERROR in get_video_analytics: {str(e)}")
+        return Response({
+            'status': 'error',
+            'message': f'Failed to get analytics: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_user_watch_history(request):
+    """Get user's watch history with engagement metrics"""
+    try:
+        views = View.objects.filter(user=request.user).select_related('short').order_by('-updated_at')
+        
+        watch_history = []
+        for view in views:
+            watch_history.append({
+                'short_id': str(view.short.id),
+                'short_title': view.short.title or 'Untitled',
+                'watch_percentage': round(view.watch_percentage, 2),
+                'watch_duration': view.watch_duration,
+                'video_duration': view.short.duration,
+                'is_complete_view': view.is_complete_view,
+                'rewatch_count': view.rewatch_count,
+                'engagement_score': round(view.engagement_score, 2),
+                'last_watched': view.updated_at.isoformat(),
+                'first_watched': view.created_at.isoformat(),
+            })
+        
+        return Response({
+            'status': 'success',
+            'watch_history': watch_history
+        })
+        
+    except Exception as e:
+        print(f"ERROR in get_user_watch_history: {str(e)}")
+        return Response({
+            'status': 'error',
+            'message': f'Failed to get watch history: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
 
 @api_view(['GET'])

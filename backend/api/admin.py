@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Short, Wallet, Transaction, AuditLog
+from .models import Short, Wallet, Transaction, AuditLog, View
 
 # Register your models here.
 
@@ -30,3 +30,13 @@ class AuditLogAdmin(admin.ModelAdmin):
     list_filter = ('action_type', 'created_at')
     search_fields = ('user__username', 'description')
     readonly_fields = ('id', 'log_hash', 'previous_log_hash', 'created_at')
+
+@admin.register(View)
+class ViewAdmin(admin.ModelAdmin):
+    list_display = ('user', 'short', 'watch_percentage', 'is_complete_view', 'rewatch_count', 'engagement_score', 'created_at', 'updated_at')
+    list_filter = ('is_complete_view', 'created_at', 'updated_at')
+    search_fields = ('user__username', 'short__title', 'session_id')
+    readonly_fields = ('created_at', 'updated_at', 'engagement_score')
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user', 'short')
