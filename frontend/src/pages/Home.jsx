@@ -17,27 +17,17 @@ function Home() {
     getCurrentUser();
   }, []);
 
-  const getCurrentUser = async () => {
-    try {
-      // For now, we'll get username from localStorage
-      // In a real app, you'd fetch this from an API endpoint
-      const token = localStorage.getItem("access");
-      if (token) {
-        // Decode JWT token to get username (simplified)
-        try {
-          const payload = JSON.parse(atob(token.split(".")[1]));
-          setCurrentUser({ username: payload.username || "user" });
-        } catch {
-          // Fallback to stored username or default
-          const storedUsername = localStorage.getItem("username") || "user";
-          setCurrentUser({ username: storedUsername });
-        }
-      }
-    } catch (error) {
-      console.error("Error getting current user:", error);
+
+
+  const getCurrentUser = () => {
+    const storedUsername = localStorage.getItem("username");
+    if (storedUsername) {
+      setCurrentUser({ username: storedUsername });
+    } else {
       setCurrentUser({ username: "user" });
     }
   };
+
 
   const handleUploadSuccess = () => {
     setShowUpload(false);

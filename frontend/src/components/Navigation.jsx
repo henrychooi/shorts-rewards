@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import "./Navigation.css";
 
@@ -10,12 +10,41 @@ const Navigation = ({
   onViewChange,
 }) => {
   const [activeTab, setActiveTab] = useState(currentView || "home");
+  const [isDropdownOpen, setDropdownOpen] = useState(false);
+  const [dropdownTimeout, setDropdownTimeout] = useState(null);
   const navigate = useNavigate();
 
   const handleLogout = () => {
     localStorage.clear();
     navigate("/login");
   };
+
+  const handleMouseEnter = () => {
+    if (dropdownTimeout) {
+      clearTimeout(dropdownTimeout);
+      setDropdownTimeout(null);
+    }
+    setDropdownOpen(true);
+  };
+
+  const handleMouseLeave = () => {
+    const timeout = setTimeout(() => {
+      setDropdownOpen(false);
+    }, 300);
+    setDropdownTimeout(timeout);
+  };
+
+  const toggleDropdown = () => {
+    setDropdownOpen(!isDropdownOpen);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (dropdownTimeout) {
+        clearTimeout(dropdownTimeout);
+      }
+    };
+  }, [dropdownTimeout]);
 
   const handleTabClick = (tabId, action) => {
     setActiveTab(tabId);
@@ -99,11 +128,19 @@ const Navigation = ({
               Create
             </button>
 
-            <div className="user-menu">
-              <div className="user-avatar">
+            <div
+              className="user-menu"
+              onMouseEnter={handleMouseEnter}
+              onMouseLeave={handleMouseLeave}
+            >
+              <div className="user-avatar" onClick={toggleDropdown}>
                 {currentUser?.username?.charAt(0).toUpperCase() || "U"}
               </div>
-              <div className="dropdown-menu">
+              <div
+                className={`dropdown-menu ${isDropdownOpen ? "show" : ""}`}
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={handleMouseLeave}
+              >
                 <div className="user-info">
                   <span className="username">
                     @{currentUser?.username || "user"}

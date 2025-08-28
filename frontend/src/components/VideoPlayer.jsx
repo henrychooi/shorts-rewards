@@ -137,10 +137,7 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
           </div>
         )}
 
-        {/* NEW: video-info now contains a white card (.video-info-card)
-            that visually groups user-info + title + description + stats */}
         <div className="video-info">
-          <div className="video-info-card">
             <div
               className="user-info"
               onClick={() => onProfileClick && onProfileClick(short.author.username)}
@@ -155,7 +152,6 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
               </div>
             </div>
 
-            {/* title + description are inside the same white card (visually bounded to user-info) */}
             {short.title && <h4 className="video-title">{short.title}</h4>}
             {short.description && (
               <p className="video-description">{short.description}</p>
@@ -176,7 +172,6 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
             </div>
           </div>
         </div>
-      </div>
 
       <div className="action-buttons">
         <button

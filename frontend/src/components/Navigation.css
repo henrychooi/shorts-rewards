@@ -92,7 +92,7 @@
   overflow: hidden;
 }
 
-.user-menu:hover .dropdown-menu {
+.dropdown-menu.show {
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
