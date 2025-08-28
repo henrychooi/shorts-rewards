@@ -7,38 +7,75 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLiked, setIsLiked] = useState(short.is_liked);
   const [likeCount, setLikeCount] = useState(short.like_count);
+  const [viewCount, setViewCount] = useState(short.view_count);
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState("");
   const [viewTracked, setViewTracked] = useState(false);
+  
   const watchTimeRef = useRef(0);
   const watchStartRef = useRef(null);
+  const viewTrackingTimer = useRef(null);
 
+  // Handle video play/pause based on isActive
   useEffect(() => {
     if (isActive && videoRef.current) {
       videoRef.current.play();
       setIsPlaying(true);
       watchStartRef.current = Date.now();
+      
+      // Start view tracking timer
+      if (!viewTracked) {
+        viewTrackingTimer.current = setTimeout(() => {
+          trackView();
+        }, 10); // Track after 0.1 seconds
+      }
     } else if (videoRef.current) {
       videoRef.current.pause();
       setIsPlaying(false);
+      
+      // Clear tracking timer
+      if (viewTrackingTimer.current) {
+        clearTimeout(viewTrackingTimer.current);
+        viewTrackingTimer.current = null;
+      }
+      
+      // Update watch time
       if (watchStartRef.current) {
         watchTimeRef.current += (Date.now() - watchStartRef.current) / 1000;
         watchStartRef.current = null;
       }
     }
-  }, [isActive]);
 
-  useEffect(() => {
-    // Track view after 3 seconds of watch time
-    if (watchTimeRef.current >= 3 && !viewTracked) {
-      shortsApi.trackView(short.id, watchTimeRef.current);
-      setViewTracked(true);
+    // Cleanup timer on unmount or when isActive changes
+    return () => {
+      if (viewTrackingTimer.current) {
+        clearTimeout(viewTrackingTimer.current);
+        viewTrackingTimer.current = null;
+      }
+    };
+  }, [isActive, viewTracked]);
+
+  const trackView = async () => {
+    if (viewTracked) return;
+    
+    try {
+      console.log(`Tracking view for short: ${short.id}`);
+      const response = await shortsApi.trackView(short.id, watchTimeRef.current || 1.0);
+      
+      if (response.data.status === 'success') {
+        setViewTracked(true);
+        setViewCount(response.data.view_count);
+        console.log(`View tracked! New count: ${response.data.view_count}`);
+      }
+    } catch (error) {
+      console.error("Error tracking view:", error);
     }
-  }, [short.id, viewTracked]);
+  };
 
   const togglePlay = () => {
     if (!videoRef.current) return;
+    
     if (videoRef.current.paused) {
       videoRef.current.play();
       setIsPlaying(true);
@@ -108,8 +145,7 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
 
     if (diffInSeconds < 60) return "just now";
     if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
-    if (diffInSeconds < 86400)
-      return `${Math.floor(diffInSeconds / 3600)}h ago`;
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
     return `${Math.floor(diffInSeconds / 86400)}d ago`;
   };
 
@@ -138,40 +174,40 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
         )}
 
         <div className="video-info">
-            <div
-              className="user-info"
-              onClick={() => onProfileClick && onProfileClick(short.author.username)}
-              style={{ cursor: "pointer" }}
-            >
-              <div className="avatar">
-                {short.author.username.charAt(0).toUpperCase()}
-              </div>
-              <div className="user-details">
-                <h3 className="username">@{short.author.username}</h3>
-                <p className="timestamp">{formatTimeAgo(short.created_at)}</p>
-              </div>
+          <div
+            className="user-info"
+            onClick={() => onProfileClick && onProfileClick(short.author.username)}
+            style={{ cursor: "pointer" }}
+          >
+            <div className="avatar">
+              {short.author.username.charAt(0).toUpperCase()}
             </div>
-
-            {short.title && <h4 className="video-title">{short.title}</h4>}
-            {short.description && (
-              <p className="video-description">{short.description}</p>
-            )}
-
-            <div className="video-stats">
-              <span className="stat" aria-hidden>
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                >
-                  <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
-                </svg>
-                {formatCount(short.view_count)}
-              </span>
+            <div className="user-details">
+              <h3 className="username">@{short.author.username}</h3>
+              <p className="timestamp">{formatTimeAgo(short.created_at)}</p>
             </div>
           </div>
+
+          {short.title && <h4 className="video-title">{short.title}</h4>}
+          {short.description && (
+            <p className="video-description">{short.description}</p>
+          )}
+
+          <div className="video-stats">
+            <span className="stat">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
+              </svg>
+              {formatCount(viewCount)}
+            </span>
+          </div>
         </div>
+      </div>
 
       <div className="action-buttons">
         <button
@@ -204,65 +240,66 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
       </div>
 
       {showComments && (
-      <>
-        <div className="page-overlay" onClick={toggleComments}></div>
-        <div className="comments-overlay">
-          <div className="comments-header">
-            <h3>{formatCount(short.comment_count)} Comments</h3>
-            <button className="close-comments" onClick={toggleComments}>
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-              </svg>
-            </button>
-          </div>
+        <>
+          <div className="page-overlay" onClick={toggleComments}></div>
+          <div className="comments-overlay">
+            <div className="comments-header">
+              <h3>{formatCount(short.comment_count)} Comments</h3>
+              <button className="close-comments" onClick={toggleComments}>
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                </svg>
+              </button>
+            </div>
 
-          <div className="comments-list">
-            {comments.map((comment) => (
-              <div key={comment.id} className="comment">
-                <div className="comment-avatar">
-                  {comment.user.username.charAt(0).toUpperCase()}
-                </div>
-                <div className="comment-content">
-                  <div className="comment-header">
-                    <span className="comment-username">
-                      @{comment.user.username}
-                    </span>
-                    <span className="comment-time">
-                      {formatTimeAgo(comment.created_at)}
-                    </span>
+            <div className="comments-list">
+              {comments.map((comment) => (
+                <div key={comment.id} className="comment">
+                  <div className="comment-avatar">
+                    {comment.user.username.charAt(0).toUpperCase()}
                   </div>
-                  <p className="comment-text">{comment.content}</p>
+                  <div className="comment-content">
+                    <div className="comment-header">
+                      <span className="comment-username">
+                        @{comment.user.username}
+                      </span>
+                      <span className="comment-time">
+                        {formatTimeAgo(comment.created_at)}
+                      </span>
+                    </div>
+                    <p className="comment-text">{comment.content}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
 
-          <form className="comment-form" onSubmit={handleComment}>
-            <input
-              type="text"
-              placeholder="Add a comment..."
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
-              className="comment-input"
-            />
-            <button type="submit" className="comment-submit">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-              </svg>
-            </button>
-          </form>
-        </div>
-      </>
+            <div className="comment-form">
+              <input
+                type="text"
+                placeholder="Add a comment..."
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleComment(e)}
+                className="comment-input"
+              />
+              <button onClick={handleComment} className="comment-submit">
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

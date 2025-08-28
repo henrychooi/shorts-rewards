@@ -84,30 +84,32 @@ def get_comments(request, short_id):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def track_view(request, short_id):
-    short = get_object_or_404(Short, id=short_id, is_active=True)
+    try:
+        # Check if the short exists and is active
+        short = get_object_or_404(Short, id=short_id, is_active=True)
+        
+        # Increment view_count for this specific short
+        Short.objects.filter(id=short_id, is_active=True).update(
+            view_count=F('view_count') + 1
+        )
+        
+        # Get the updated count to return
+        short.refresh_from_db()
+        
+        print(f"DEBUG: View incremented for short {short_id}. New view count: {short.view_count}")
+        
+        return Response({
+            'status': 'success',
+            'view_count': short.view_count
+        })
+        
+    except Exception as e:
+        print(f"ERROR in track_view: {str(e)}")
+        return Response({
+            'status': 'error',
+            'message': f'Failed to track view: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    # Get client IP
-    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-    if x_forwarded_for:
-        ip = x_forwarded_for.split(',')[0]
-    else:
-        ip = request.META.get('REMOTE_ADDR')
-    
-    watch_duration = request.data.get('watch_duration', 0.0)
-    
-    # Create view record
-    View.objects.create(
-        user=request.user if request.user.is_authenticated else None,
-        short=short,
-        ip_address=ip,
-        watch_duration=watch_duration
-    )
-    
-    # Increment view count
-    Short.objects.filter(id=short_id).update(view_count=F('view_count') + 1)
-    
-    return Response({'status': 'success'})
-
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
