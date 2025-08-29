@@ -38,11 +38,15 @@ class UserProfileSerializer(serializers.ModelSerializer):
 class CommentSerializer(serializers.ModelSerializer):
     user = UserProfileSerializer(read_only=True)
     reply_count = serializers.ReadOnlyField()
-    
+
     class Meta:
         model = Comment
-        fields = ["id", "user", "content", "created_at", "reply_count", "parent"]
+        fields = [
+            "id", "user", "content", "created_at", "reply_count", "parent",
+            "sentiment_score", "sentiment_label", "analyzed_at"
+        ]
         extra_kwargs = {"user": {"read_only": True}}
+        read_only_fields = ["sentiment_score", "sentiment_label", "analyzed_at"]
 
 
 class ShortSerializer(serializers.ModelSerializer):
@@ -57,8 +61,8 @@ class ShortSerializer(serializers.ModelSerializer):
         fields = [
             "id", "title", "description", "video", "thumbnail", "author",
             "created_at", "view_count", "duration", "like_count", "comment_count",
-            "is_liked", "comments", "transcript", "audio_quality_score", 
-            "transcript_language", "audio_processed_at"
+            "is_liked", "comments", "transcript", "audio_quality_score",
+            "transcript_language", "audio_processed_at", "comment_analysis_score"
         ]
         extra_kwargs = {"author": {"read_only": True}}
     
