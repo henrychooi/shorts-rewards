@@ -39,7 +39,8 @@
 }
 
 .play-button {
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.95);
+  border: 2px solid rgba(255, 255, 255, 0.8);
   border-radius: 50%;
   width: 80px;
   height: 80px;
@@ -47,6 +48,8 @@
   align-items: center;
   justify-content: center;
   transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
 .play-button:hover {
@@ -190,32 +193,48 @@
   z-index: 2;
 }
 
-.action-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  background: rgba(0, 0, 0, 0.5);
-  border: none;
-  color: white;
-  padding: 12px;
-  border-radius: 50%;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
-  min-width: 48px;
-  min-height: 48px;
+.video-container .action-btn {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 4px !important;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  color: white !important;
+  padding: 8px !important;
+  cursor: pointer !important;
+  transition: all 0.3s ease !important;
+  min-width: 48px !important;
+  min-height: 48px !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+  border-radius: 0 !important;
 }
 
-.action-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-  transform: scale(1.1);
+.video-container .action-btn:focus {
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  border: none !important;
 }
 
-.action-btn span {
-  font-size: 11px;
-  font-weight: 600;
-  margin-top: 4px;
+.video-container .action-btn:hover {
+  transform: scale(1.1) !important;
+  opacity: 0.8 !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.video-container .action-btn span {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  margin-top: 4px !important;
+  color: white !important;
 }
 
 .like-btn.liked {
@@ -223,7 +242,8 @@
 }
 
 .like-btn.liked:hover {
-  background: rgba(255, 48, 64, 0.2);
+  opacity: 0.8;
+  transform: scale(1.1);
 }
 
 .comments-overlay {

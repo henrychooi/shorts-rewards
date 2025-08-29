@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import VideoPlayer from "./VideoPlayer";
 import { shortsApi } from "../services/shortsApi";
 import "./ShortsFeed.css";
@@ -34,14 +34,116 @@ const ShortsFeed = ({ onProfileClick }) => {
   const loadShorts = async () => {
     try {
       setLoading(true);
+      setError(null);
+      console.log("🔄 Loading shorts from API...");
+
+      // Try to fetch from API first
       const response = await shortsApi.getShorts();
-      setShorts(response.data);
+      console.log("📡 API Response:", response);
+
+      if (response.data && Array.isArray(response.data)) {
+        console.log("✅ Found", response.data.length, "shorts from API");
+        // Map backend data structure to frontend expected format
+        const mappedShorts = response.data.map((short) => ({
+          id: short.id,
+          title: short.title,
+          description: short.description,
+          video: short.video,
+          username: short.author?.username || "Unknown",
+          created_at: short.created_at,
+          view_count: short.view_count || 0,
+          like_count: short.like_count || 0,
+          comment_count: short.comment_count || 0,
+          is_liked: short.is_liked || false,
+          duration: short.duration,
+          author: short.author,
+          comments: short.comments || [],
+        }));
+        setShorts(mappedShorts);
+      } else {
+        throw new Error("Invalid API response format");
+      }
     } catch (err) {
-      setError("Failed to load shorts");
-      console.error("Error loading shorts:", err);
+      console.error("❌ Error loading shorts from API:", err);
+      console.log("🔄 Falling back to mock data...");
+      setError("Could not connect to server - using demo content");
+
+      // Fallback to mock data
+      const mockShorts = [
+        {
+          id: "1",
+          title: "Amazing Dance Moves",
+          description: "Check out these incredible dance moves!",
+          video: "/media/videos/red_ball.mp4",
+          view_count: 12500,
+          like_count: 890,
+          comment_count: 45,
+          username: "creator1",
+          created_at: new Date().toISOString(),
+          is_liked: false,
+        },
+        {
+          id: "2",
+          title: "Cooking Tutorial",
+          description: "Learn to make the perfect pasta",
+          video: "/media/videos/red_ball_ugEX5f3.mp4",
+          view_count: 8200,
+          like_count: 650,
+          comment_count: 23,
+          username: "creator2",
+          created_at: new Date().toISOString(),
+          is_liked: true,
+        },
+        {
+          id: "3",
+          title: "Travel Vlog",
+          description: "Beautiful sunset in Bali",
+          video: "/media/videos/red_ball.mp4",
+          view_count: 15600,
+          like_count: 1200,
+          comment_count: 67,
+          username: "creator3",
+          created_at: new Date().toISOString(),
+          is_liked: false,
+        },
+        {
+          id: "4",
+          title: "Tech Review",
+          description: "Latest smartphone features",
+          video: "/media/videos/red_ball_ugEX5f3.mp4",
+          view_count: 9800,
+          like_count: 720,
+          comment_count: 34,
+          username: "creator4",
+          created_at: new Date().toISOString(),
+          is_liked: false,
+        },
+        {
+          id: "5",
+          title: "Fitness Tips",
+          description: "Quick morning workout routine",
+          video: "/media/videos/red_ball.mp4",
+          view_count: 22100,
+          like_count: 1800,
+          comment_count: 89,
+          username: "creator5",
+          created_at: new Date().toISOString(),
+          is_liked: true,
+        },
+      ];
+      setShorts(mockShorts);
     } finally {
       setLoading(false);
     }
+  };
+
+  const formatCount = (count) => {
+    if (count >= 1000000) {
+      return `${(count / 1000000).toFixed(1)}M`;
+    } else if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}K`;
+    }
+    return count.toString();
   };
 
   const scrollToNext = () => {
@@ -83,10 +185,8 @@ const ShortsFeed = ({ onProfileClick }) => {
 
     if (Math.abs(deltaY) > threshold) {
       if (deltaY > 0) {
-        // Swipe up - next video
         scrollToNext();
       } else {
-        // Swipe down - previous video
         scrollToPrevious();
       }
     }
@@ -111,10 +211,13 @@ const ShortsFeed = ({ onProfileClick }) => {
 
   if (loading) {
     return (
-      <div className="shorts-loading">
-        <div className="loading-spinner">
-          <div className="spinner"></div>
-          <p>Loading awesome shorts...</p>
+      <div className="modern-shorts-loading">
+        <div className="modern-bg-gradient-1"></div>
+        <div className="modern-bg-gradient-2"></div>
+
+        <div className="modern-loading-container">
+          <div className="modern-loading-spinner" />
+          <p>Loading amazing shorts...</p>
         </div>
       </div>
     );
@@ -122,13 +225,34 @@ const ShortsFeed = ({ onProfileClick }) => {
 
   if (error) {
     return (
-      <div className="shorts-error">
-        <div className="error-content">
-          <svg width="64" height="64" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+      <div className="modern-shorts-error">
+        <div className="modern-error-content">
+          <svg
+            width="64"
+            height="64"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          >
+            <path d="M12 9v4m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
           </svg>
-          <h3>{error}</h3>
-          <button onClick={loadShorts} className="retry-btn">
+          <h3>Oops! Something went wrong</h3>
+          <p>We couldn't load the shorts. Please try again.</p>
+          <button onClick={loadShorts} className="modern-retry-btn">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+              <path d="M21 3v5h-5" />
+              <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+              <path d="M3 21v-5h5" />
+            </svg>
             Try Again
           </button>
         </div>
@@ -136,39 +260,38 @@ const ShortsFeed = ({ onProfileClick }) => {
     );
   }
 
-  if (shorts.length === 0 && !loading && !error) {
-    const dummyShort = {
-      id: 1,
-      title: "Dummy Short",
-      description: "This is a dummy short for testing purposes.",
-      video: "", // no video needed for this test
-      author: { username: "testuser123" },
-      created_at: new Date().toISOString(),
-      view_count: 0,
-      like_count: 0,
-      comment_count: 0,
-      is_liked: false,
-      comments: [],
-    };
+  if (shorts.length === 0) {
     return (
-      <div className="shorts-feed">
-        <div className="shorts-container" ref={containerRef}>
-          <div className="short-item">
-            <VideoPlayer
-              short={dummyShort}
-              isActive={true}
-              onProfileClick={onProfileClick}
-            />
-          </div>
+      <div className="modern-shorts-empty">
+        <div className="modern-empty-content">
+          <svg
+            width="80"
+            height="80"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1"
+          >
+            <path d="M23 7l-7 5 7 5V7z" />
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+          </svg>
+          <h3>No shorts available</h3>
+          <p>Be the first to create amazing short videos!</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="shorts-feed">
+    <div className="modern-shorts-feed">
+      {/* Background decorations */}
+      <div className="modern-bg-gradient-1"></div>
+      <div className="modern-bg-gradient-2"></div>
+      <div className="modern-bg-gradient-3"></div>
+
+      {/* Feed View - always active */}
       <div
-        className="shorts-container"
+        className="modern-shorts-container"
         ref={containerRef}
         onScroll={handleScroll}
         onTouchStart={handleTouchStart}
@@ -176,7 +299,7 @@ const ShortsFeed = ({ onProfileClick }) => {
         onTouchEnd={handleTouchEnd}
       >
         {shorts.map((short, index) => (
-          <div key={short.id} className="short-item">
+          <div key={short.id} className="modern-short-item">
             <VideoPlayer
               short={short}
               isActive={index === currentIndex}
@@ -186,10 +309,12 @@ const ShortsFeed = ({ onProfileClick }) => {
         ))}
       </div>
 
-      {/* Navigation indicators */}
-      <div className="shorts-navigation">
+      {/* Navigation controls */}
+      <div className="modern-navigation">
         <button
-          className={`nav-btn nav-up ${currentIndex === 0 ? "disabled" : ""}`}
+          className={`modern-nav-btn nav-up ${
+            currentIndex === 0 ? "disabled" : ""
+          }`}
           onClick={scrollToPrevious}
           disabled={currentIndex === 0}
         >
@@ -198,23 +323,8 @@ const ShortsFeed = ({ onProfileClick }) => {
           </svg>
         </button>
 
-        <div className="progress-indicator">
-          {shorts.map((_, index) => (
-            <div
-              key={index}
-              className={`progress-dot ${
-                index === currentIndex ? "active" : ""
-              }`}
-              onClick={() => {
-                setCurrentIndex(index);
-                scrollToIndex(index);
-              }}
-            />
-          ))}
-        </div>
-
         <button
-          className={`nav-btn nav-down ${
+          className={`modern-nav-btn nav-down ${
             currentIndex === shorts.length - 1 ? "disabled" : ""
           }`}
           onClick={scrollToNext}
@@ -224,11 +334,6 @@ const ShortsFeed = ({ onProfileClick }) => {
             <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" />
           </svg>
         </button>
-      </div>
-
-      {/* Current video info */}
-      <div className="video-counter">
-        {currentIndex + 1} / {shorts.length}
       </div>
     </div>
   );

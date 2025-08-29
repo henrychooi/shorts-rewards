@@ -95,46 +95,42 @@ const Profile = ({ username, onClose }) => {
 
   if (loading) {
     return (
-      <div className="profile-loading">
+      <div className="modern-profile-loading">
+        <div className="background-blur-1" />
+        <div className="background-blur-2" />
+
         <div className="loading-container">
-          <div className="loading-spinner" />
-          <p>Loading profile...</p>
+          <div className="modern-spinner" />
+          <p className="loading-text">Loading profile...</p>
         </div>
       </div>
     );
   }
 
-  if (error && !profile) {
-    return (
-      <div className="profile-error">
-        <h3>Failed to load profile</h3>
-        <button onClick={handleRetry}>Retry</button>
-        <button onClick={onClose}>Go Back</button>
-      </div>
-    );
-  }
-
   return (
-    <div className="profile-overlay">
-      <div className="profile-container">
-        {/* Animated background elements */}
-        <div className="background-gradient-1"></div>
-        <div className="background-gradient-2"></div>
-        <div className="background-gradient-3"></div>
+    <div className="modern-profile-overlay">
+      {/* Background decorative elements */}
+      <div className="bg-decoration-1" />
+      <div className="bg-decoration-2" />
+      <div className="bg-decoration-3" />
 
-        <div className="profile-header">
+      <div className="modern-profile-container">
+        {/* Header */}
+        <div className="modern-profile-header">
           <div className="header-left">
-            <button className="back-btn" onClick={onClose}>
+            <button onClick={onClose} className="modern-back-btn">
               <svg
                 width="20"
                 height="20"
                 viewBox="0 0 24 24"
-                fill="currentColor"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
               >
-                <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+                <path d="M19 12H5M12 19l-7-7 7-7" />
               </svg>
             </button>
-            <h2>Profile</h2>
+            <h2 className="header-title">Profile</h2>
           </div>
 
           <div className="header-actions">
@@ -143,9 +139,13 @@ const Profile = ({ username, onClose }) => {
                 width="16"
                 height="16"
                 viewBox="0 0 24 24"
-                fill="currentColor"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
               >
-                <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z" />
+                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+                <polyline points="16,6 12,2 8,6" />
+                <line x1="12" y1="2" x2="12" y2="15" />
               </svg>
             </button>
             <button className="action-btn">
@@ -153,42 +153,48 @@ const Profile = ({ username, onClose }) => {
                 width="16"
                 height="16"
                 viewBox="0 0 24 24"
-                fill="currentColor"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
               >
-                <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+                <circle cx="12" cy="12" r="1" />
+                <circle cx="19" cy="12" r="1" />
+                <circle cx="5" cy="12" r="1" />
               </svg>
             </button>
           </div>
         </div>
 
         {/* Profile Info */}
-        <div className="profile-info">
-          <div className="profile-avatar">
-            <div className="profile-avatar-inner">
-              {profile?.username?.charAt(0).toUpperCase() || "U"}
+        <div className="modern-profile-info">
+          <div className="profile-info-bg" />
+
+          <div className="profile-content">
+            <div className="avatar-container">
+              <div className="avatar-ring" />
+              <div className="modern-avatar">
+                {profile?.username?.charAt(0).toUpperCase() || "U"}
+              </div>
             </div>
-          </div>
 
-          <h1 className="profile-username">@{profile?.username || "user"}</h1>
-          <p className="profile-subtitle">Content Creator & Storyteller</p>
+            <h1 className="profile-username">@{profile?.username || "user"}</h1>
+            <p className="profile-subtitle">Content Creator & Storyteller</p>
 
-          <button className="profile-edit-btn">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="M12 20h9" />
-              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-            </svg>
-            Edit Profile
-          </button>
+            <button className="edit-profile-btn">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M20 6L9 17l-5-5" />
+              </svg>
+              Edit Profile
+            </button>
 
-          <div className="profile-stats">
-            <div className="stat">
+            <div className="stats-grid">
               <div className="stat-card">
                 <div className="stat-icon">
                   <svg
@@ -208,9 +214,7 @@ const Profile = ({ username, onClose }) => {
                 </div>
                 <div className="stat-label">Shorts</div>
               </div>
-            </div>
 
-            <div className="stat">
               <div className="stat-card">
                 <div className="stat-icon">
                   <svg
@@ -230,9 +234,7 @@ const Profile = ({ username, onClose }) => {
                 </div>
                 <div className="stat-label">Views</div>
               </div>
-            </div>
 
-            <div className="stat">
               <div className="stat-card">
                 <div className="stat-icon">
                   <svg
@@ -255,64 +257,73 @@ const Profile = ({ username, onClose }) => {
           </div>
         </div>
 
-        {/* Content Section */}
-        <div className="profile-content">
-          <div className="content-header">
-            <h3>Latest Shorts</h3>
-          </div>
+        {/* Shorts Grid */}
+        <div className="modern-content-section">
+          <div className="content-container">
+            <h3 className="section-title">Latest Shorts</h3>
 
-          <div className="shorts-grid">
             {shorts.length > 0 ? (
-              shorts.map((short, index) => (
-                <div
-                  key={short.id}
-                  className="short-thumbnail"
-                  onClick={() => handleVideoClick(short)}
-                  style={{
-                    animationDelay: `${index * 100}ms`,
-                  }}
-                >
-                  <video src={short.video} className="thumbnail-video" muted />
-                  <div className="thumbnail-overlay">
-                    <div className="play-icon">
-                      <svg
-                        width="24"
-                        height="24"
-                        viewBox="0 0 24 24"
-                        fill="white"
-                      >
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
-                    </div>
-                    <div className="video-stats">
-                      <span className="views">
+              <div className="modern-shorts-grid">
+                {shorts.map((short, index) => (
+                  <div
+                    key={short.id}
+                    className="modern-short-card"
+                    onClick={() => handleVideoClick(short)}
+                    style={{ animationDelay: `${index * 100}ms` }}
+                  >
+                    <img
+                      src={short.video || "/api/placeholder/400/600"}
+                      alt="Video thumbnail"
+                      className="short-thumbnail"
+                    />
+
+                    <div className="short-overlay">
+                      <div className="play-button">
                         <svg
-                          width="16"
-                          height="16"
+                          width="20"
+                          height="20"
                           viewBox="0 0 24 24"
                           fill="currentColor"
                         >
-                          <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
+                          <polygon points="5,3 19,12 5,21" />
                         </svg>
-                        {formatCount(short.view_count)}
-                      </span>
-                      <span className="likes">
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="currentColor"
-                        >
-                          <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-                        </svg>
-                        {formatCount(short.like_count)}
-                      </span>
+                      </div>
+
+                      <div className="short-stats">
+                        <div className="stat-chip">
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
+                          {formatCount(short.view_count)}
+                        </div>
+                        <div className="stat-chip">
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                          </svg>
+                          {formatCount(short.like_count)}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
+                ))}
+              </div>
             ) : (
-              <div className="no-shorts">
+              <div className="empty-state">
                 <svg
                   width="64"
                   height="64"
@@ -334,22 +345,40 @@ const Profile = ({ username, onClose }) => {
 
       {/* Video Modal */}
       {selectedShort && (
-        <div className="video-modal">
-          <div className="video-modal-content">
+        <div className="modern-video-modal">
+          <div className="modal-content">
             <button
-              className="close-modal"
               onClick={() => setSelectedShort(null)}
+              className="modal-close-btn"
             >
               <svg
-                width="24"
-                height="24"
+                width="20"
+                height="20"
                 viewBox="0 0 24 24"
-                fill="currentColor"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
               >
-                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                <path d="M19 12H5M12 19l-7-7 7-7" />
               </svg>
             </button>
-            <VideoPlayer short={selectedShort} isActive={true} />
+
+            <div className="video-placeholder">
+              <svg
+                width="64"
+                height="64"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                opacity="0.5"
+              >
+                <polygon points="5,3 19,12 5,21" />
+              </svg>
+              <p className="video-title">Video Player</p>
+              <p className="video-stats">
+                {formatCount(selectedShort.view_count)} views •{" "}
+                {formatCount(selectedShort.like_count)} likes
+              </p>
+            </div>
           </div>
         </div>
       )}
