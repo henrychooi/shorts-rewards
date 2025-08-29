@@ -9,7 +9,10 @@ from api.views import (
     user_shorts, user_profile, wallet_detail, wallet_transactions,
     verify_transaction, audit_log, wallet_integrity_report,
     track_watch_progress, get_video_analytics, get_user_watch_history, process_all_videos_audio, process_single_video_audio,
-    get_audio_quality_report, list_videos, process_videos_traditional
+    get_audio_quality_report, list_videos, process_videos_traditional,
+    # Comment Analysis endpoints (API only)
+    analyze_comment, analyze_comments_for_short, batch_analyze_comments,
+    get_comment_sentiment_summary, analyze_text_sentiment
 )
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -50,6 +53,14 @@ urlpatterns = [
     path('api/audio/process-single/', process_single_video_audio, name='process_single_video_audio'),
     path('api/audio/quality-report/', get_audio_quality_report, name='audio_quality_report'),
     path('api/videos/list/', list_videos, name='list_videos'),
+
+    # Comment Analysis endpoints
+    path('api/admin/analyze-comment/<uuid:comment_id>/', analyze_comment, name='analyze_comment'),
+    path('api/admin/reanalyze-comment/<uuid:comment_id>/', analyze_comment, {'force': True}, name='reanalyze_comment'),
+    path('api/admin/analyze-comments/<uuid:short_id>/', analyze_comments_for_short, name='analyze_comments_for_short'),
+    path('api/batch-analyze-comments/', batch_analyze_comments, name='batch_analyze_comments'),
+    path('api/comment-sentiment-summary/<uuid:short_id>/', get_comment_sentiment_summary, name='comment_sentiment_summary'),
+    path('api/analyze-text-sentiment/', analyze_text_sentiment, name='analyze_text_sentiment'),
 ]
 
 # Serve media files during development

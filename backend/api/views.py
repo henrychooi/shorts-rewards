@@ -16,9 +16,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from .serializers import (
     UserSerializer, NoteSerializer, ShortSerializer, ShortCreateSerializer,
-    LikeSerializer, CommentSerializer, UserProfileSerializer, WalletSerializer, 
+    LikeSerializer, CommentSerializer, UserProfileSerializer, WalletSerializer,
     TransactionSerializer, AuditLogSerializer
 )
+from .comment_analysis_service import CommentAnalysisService
 from .models import Note, Short, Like, Comment, View, Wallet, Transaction, AuditLog
 from .audio_service import AudioProcessingService
 import logging
@@ -720,3 +721,256 @@ class CreateUserView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [AllowAny]
+
+
+# Comment Analysis API Views
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def analyze_comment(request, comment_id):
+    """
+    Analyze sentiment for a single comment.
+
+    API endpoint for comment sentiment analysis that can be called from admin interface
+    or external API clients.
+
+    Expected payload (optional): {"force": true} to re-analyze already analyzed comments
+    """
+    try:
+        comment = get_object_or_404(Comment, id=comment_id, is_active=True)
+        force = request.data.get('force', False)
+
+        service = CommentAnalysisService()
+        result = service.reanalyze_comment(comment, force=force)
+
+        if result.get('error'):
+            return Response({
+                'success': False,
+                'error': result['error']
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({
+            'success': True,
+            'comment_id': str(comment.id),
+            'sentiment_score': round(result['sentiment_score'], 2),
+            'sentiment_label': result['sentiment_label'],
+            'analyzed_at': comment.analyzed_at.isoformat() if comment.analyzed_at else None
+        })
+
+    except Comment.DoesNotExist:
+        return Response({
+            'success': False,
+            'error': 'Comment not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        logger.error(f"Error analyzing comment {comment_id}: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Analysis failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def analyze_comments_for_short(request, short_id):
+    """
+    Analyze all unanalyzed comments for a given short.
+
+    API endpoint for batch comment sentiment analysis.
+
+    Expected payload (optional):
+    - {"force": true} to re-analyze already analyzed comments
+    - {"update_aggregate": true} to update the Short's aggregate score
+    """
+    try:
+        short = get_object_or_404(Short, id=short_id, is_active=True)
+        force = request.data.get('force', False)
+        update_aggregate = request.data.get('update_aggregate', True)
+
+        service = CommentAnalysisService()
+        result = service.analyze_comments_for_short(short, update_aggregate=update_aggregate)
+
+        response_data = {
+            'success': True,
+            'short_id': str(short.id),
+            'comments_analyzed': result.get('comments_analyzed', 0),
+            'errors': result.get('errors', 0),
+            'aggregate_score': round(result.get('aggregate_score'), 2) if result.get('aggregate_score') else None,
+            'results': result.get('results', [])
+        }
+
+        if result.get('errors', 0) > 0:
+            response_data['warning'] = f"{result['errors']} comments failed to analyze"
+
+        return Response(response_data)
+
+    except Short.DoesNotExist:
+        return Response({
+            'success': False,
+            'error': 'Short not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        logger.error(f"Error analyzing comments for short {short_id}: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Analysis failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def batch_analyze_comments(request):
+    """
+    Batch analyze comments across multiple shorts.
+
+    API endpoint for large-scale comment sentiment analysis.
+
+    Expected payload:
+    - short_ids: List of short IDs to process
+    - force: (optional) Re-analyze already processed comments
+    - update_aggregates: (optional) Update Short aggregate scores
+    """
+    try:
+        short_ids = request.data.get('short_ids', [])
+        force = request.data.get('force', False)
+        update_aggregates = request.data.get('update_aggregates', True)
+
+        if not short_ids:
+            return Response({
+                'success': False,
+                'error': 'short_ids is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        service = CommentAnalysisService()
+        total_shorts = 0
+        total_comments = 0
+        total_errors = 0
+        results = []
+
+        for short_id in short_ids:
+            try:
+                short = Short.objects.get(id=short_id, is_active=True)
+                result = service.analyze_comments_for_short(short, update_aggregate=update_aggregates)
+
+                total_shorts += 1
+                total_comments += result.get('comments_analyzed', 0)
+                total_errors += result.get('errors', 0)
+
+                results.append({
+                    'short_id': str(short_id),
+                    'short_title': short.title or 'Untitled',
+                    'comments_analyzed': result.get('comments_analyzed', 0),
+                    'errors': result.get('errors', 0),
+                    'aggregate_score': result.get('aggregate_score')
+                })
+
+            except Short.DoesNotExist:
+                results.append({
+                    'short_id': str(short_id),
+                    'error': 'Short not found'
+                })
+            except Exception as e:
+                logger.error(f"Error processing short {short_id}: {str(e)}")
+                results.append({
+                    'short_id': str(short_id),
+                    'error': str(e)
+                })
+
+        response_data = {
+            'success': True,
+            'summary': {
+                'total_shorts_processed': total_shorts,
+                'total_comments_analyzed': total_comments,
+                'total_errors': total_errors,
+                'success_rate': (total_comments / (total_comments + total_errors) * 100) if (total_comments + total_errors) > 0 else 0
+            },
+            'results': results
+        }
+
+        if total_errors > 0:
+            response_data['warning'] = f"{total_errors} comments failed to analyze"
+
+        return Response(response_data)
+
+    except Exception as e:
+        logger.error(f"Error in batch analysis: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Batch analysis failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_comment_sentiment_summary(request, short_id):
+    """
+    Get sentiment summary for all comments on a short.
+
+    Returns statistics about comment sentiment distribution and averages.
+    """
+    try:
+        short = get_object_or_404(Short, id=short_id, is_active=True)
+
+        service = CommentAnalysisService()
+        summary = service.get_short_sentiment_summary(short)
+
+        return Response({
+            'success': True,
+            'short_id': str(short_id),
+            'summary': summary
+        })
+
+    except Short.DoesNotExist:
+        return Response({
+            'success': False,
+            'error': 'Short not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        logger.error(f"Error getting sentiment summary for short {short_id}: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Failed to get summary: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def analyze_text_sentiment(request):
+    """
+    Analyze sentiment of arbitrary text.
+
+    API endpoint for testing sentiment analysis on any text without saving to database.
+    Useful for testing the model or analyzing text from external sources.
+
+    Expected payload: {"text": "Text to analyze"}
+    """
+    try:
+        text = request.data.get('text', '').strip()
+
+        if not text:
+            return Response({
+                'success': False,
+                'error': 'Text is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        service = CommentAnalysisService()
+        result = service.analyze_comment(text)
+
+        if result.get('error'):
+            return Response({
+                'success': False,
+                'error': result['error']
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({
+            'success': True,
+            'sentiment_score': round(result['sentiment_score'], 2),
+            'sentiment_label': result['sentiment_label'],
+            'raw_scores': result.get('raw_scores', {})
+        })
+
+    except Exception as e:
+        logger.error(f"Error analyzing text sentiment: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Analysis failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

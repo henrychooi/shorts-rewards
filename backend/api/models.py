@@ -26,6 +26,9 @@ class Short(models.Model):
     audio_quality_score = models.FloatField(blank=True, null=True, help_text="Audio quality score (0-100)")
     transcript_language = models.CharField(max_length=10, blank=True, null=True, help_text="Detected language")
     audio_processed_at = models.DateTimeField(blank=True, null=True, help_text="When audio processing was completed")
+
+    # Comment analysis fields
+    comment_analysis_score = models.FloatField(null=True, blank=True, help_text="Aggregated comment sentiment score (-1 to 1)")
     
     class Meta:
         ordering = ['-created_at']
@@ -211,6 +214,11 @@ class Comment(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
+
+    # Comment analysis fields
+    sentiment_score = models.FloatField(null=True, blank=True, help_text="Sentiment score (-1 to 1)")
+    sentiment_label = models.CharField(max_length=20, null=True, blank=True, help_text="Sentiment label (positive/negative/neutral)")
+    analyzed_at = models.DateTimeField(null=True, blank=True, help_text="When sentiment analysis was performed")
 
     class Meta:
         ordering = ['-created_at']
@@ -539,4 +547,3 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"Audit: {self.action_type} - {self.user.username}"
-
