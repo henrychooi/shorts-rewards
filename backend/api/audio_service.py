@@ -3,6 +3,8 @@ import time
 import json
 import logging
 import ffmpeg
+import subprocess
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -10,6 +12,70 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from django.conf import settings
 from transformers import pipeline
 import torch
+
+# Try to import moviepy as fallback
+try:
+    from moviepy.editor import VideoFileClip
+    MOVIEPY_AVAILABLE = True
+    MOVIEPY_ERROR = None
+except ImportError as e:
+    MOVIEPY_AVAILABLE = False
+    VideoFileClip = None
+    MOVIEPY_ERROR = f"Import failed: {e}"
+except Exception as e:
+    MOVIEPY_AVAILABLE = False
+    VideoFileClip = None
+    MOVIEPY_ERROR = f"Unexpected error: {e}"
+
+def check_moviepy_availability():
+    """Re-check MoviePy availability at runtime"""
+    global MOVIEPY_AVAILABLE, VideoFileClip, MOVIEPY_ERROR
+    try:
+        import sys
+        print(f"Python executable: {sys.executable}")
+        print(f"Python path: {sys.path[:3]}...")  # Show first 3 paths
+        
+        # Try importing step by step
+        import moviepy
+        print(f"MoviePy base module found at: {moviepy.__file__}")
+        
+        # Check what's available in the moviepy package
+        import os
+        moviepy_dir = os.path.dirname(moviepy.__file__)
+        print(f"MoviePy directory contents: {os.listdir(moviepy_dir)}")
+        
+        # Try importing editor specifically
+        try:
+            from moviepy.editor import VideoFileClip
+            print("VideoFileClip imported successfully!")
+            MOVIEPY_AVAILABLE = True
+            MOVIEPY_ERROR = None
+            return True
+        except ImportError as editor_error:
+            print(f"moviepy.editor import failed: {editor_error}")
+            # Try alternative import
+            try:
+                from moviepy.video.io.VideoFileClip import VideoFileClip
+                print("VideoFileClip imported via alternative path!")
+                MOVIEPY_AVAILABLE = True
+                MOVIEPY_ERROR = None
+                return True
+            except ImportError as alt_error:
+                print(f"Alternative import also failed: {alt_error}")
+                raise editor_error
+        
+    except ImportError as e:
+        MOVIEPY_AVAILABLE = False
+        VideoFileClip = None
+        MOVIEPY_ERROR = f"Runtime import failed: {e}"
+        print(f"MoviePy import error: {e}")
+        return False
+    except Exception as e:
+        MOVIEPY_AVAILABLE = False
+        VideoFileClip = None
+        MOVIEPY_ERROR = f"Runtime unexpected error: {e}"
+        print(f"MoviePy unexpected error: {e}")
+        return False
 
 # Configure logger to use Django's logging setup
 logger = logging.getLogger(__name__)
@@ -34,26 +100,18 @@ class AudioProcessingService:
         self.transcripts_path = self.output_audio_path / "transcripts"
 
         # Allow overriding Whisper model via management command argument
-        self.model_id = whisper_model or config.get("WHISPER_MODEL", "openai/whisper-medium.en")
+        self.model_id = whisper_model or config.get("WHISPER_MODEL", "openai/whisper-tiny")
+        self.hf_token = config.get("HF_TOKEN")  # Get Hugging Face token from config
         
         # Set the device for computation (GPU if available, otherwise CPU)
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         logger.info(f"Using device: {self.device}")
+        logger.info(f"HF Token available: {'Yes' if self.hf_token else 'No'}")
 
-        # Initialize the Hugging Face ASR pipeline
-        try:
-            self.asr_pipeline = pipeline(
-                "automatic-speech-recognition",
-                model=self.model_id,
-                device=self.device,
-                # For word-level timestamps and avg_logprob, crucial for quality analysis
-                return_timestamps="word",
-                batch_size=16, # Adjust batch size for performance
-            )
-            logger.info(f"Successfully loaded Whisper pipeline with model: {self.model_id}")
-        except Exception as e:
-            logger.error(f"Failed to load Whisper pipeline: {e}")
-            self.asr_pipeline = None
+        # Initialize the ASR pipeline as None - will be loaded when first needed
+        self.asr_pipeline = None
+        self._pipeline_loaded = False
+        self._pipeline_error = None
 
         # --- Configuration from your new script ---
         self.max_workers = 4 # Default concurrency
@@ -61,16 +119,98 @@ class AudioProcessingService:
         # Create output directories if they don't exist
         self.output_audio_path.mkdir(parents=True, exist_ok=True)
         self.transcripts_path.mkdir(parents=True, exist_ok=True)
+        
+        # Check if FFmpeg is available
+        self.ffmpeg_available = self._check_ffmpeg()
+        
+        # Re-check MoviePy availability at runtime (in case it was installed after Django started)
+        if not MOVIEPY_AVAILABLE:
+            check_moviepy_availability()
+        
+        if not self.ffmpeg_available:
+            logger.warning("FFmpeg not found! Falling back to moviepy for audio extraction")
+            if not MOVIEPY_AVAILABLE:
+                logger.error("Neither FFmpeg nor moviepy available! Please install one of them")
+                logger.error("FFmpeg: https://ffmpeg.org/download.html")
+                logger.error("MoviePy: pip install moviepy")
+        
         logger.info(f"Video source path: {self.media_videos_path}")
         logger.info(f"Audio output path: {self.output_audio_path}")
+        logger.info(f"FFmpeg available: {self.ffmpeg_available}")
+        logger.info(f"MoviePy available: {MOVIEPY_AVAILABLE}")
+        if not MOVIEPY_AVAILABLE and MOVIEPY_ERROR:
+            logger.warning(f"MoviePy error: {MOVIEPY_ERROR}")
+
+    def _check_ffmpeg(self) -> bool:
+        """Check if FFmpeg is available in the system PATH"""
+        try:
+            # Check if ffmpeg is in PATH
+            if shutil.which('ffmpeg') is None:
+                return False
+            
+            # Try to run ffmpeg -version to verify it works
+            result = subprocess.run(['ffmpeg', '-version'], 
+                                  capture_output=True, text=True, timeout=10)
+            return result.returncode == 0
+        except Exception as e:
+            logger.debug(f"FFmpeg check failed: {e}")
+            return False
+
+    def _load_pipeline_if_needed(self):
+        """Lazy load the ASR pipeline when first needed"""
+        if self._pipeline_loaded:
+            return self.asr_pipeline is not None
+        
+        if self._pipeline_error:
+            return False
+            
+        try:
+            logger.info(f"Loading Whisper pipeline with model: {self.model_id}")
+            self.asr_pipeline = pipeline(
+                "automatic-speech-recognition",
+                model=self.model_id,
+                device=self.device,
+                # For word-level timestamps and avg_logprob, crucial for quality analysis
+                return_timestamps="word",
+                batch_size=16, # Adjust batch size for performance
+                use_auth_token=self.hf_token,  # Use token from settings
+                local_files_only=False  # Allow download if needed
+            )
+            self._pipeline_loaded = True
+            logger.info(f"Successfully loaded Whisper pipeline")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to load Whisper pipeline: {e}")
+            self._pipeline_error = str(e)
+            self._pipeline_loaded = True
+            self.asr_pipeline = None
+            return False
 
     def _extract_audio(self, video_path: Path, audio_path: Path, force: bool = False) -> bool:
-        """Extracts audio using ffmpeg-python. Returns True on success."""
+        """Extracts audio using ffmpeg-python or moviepy fallback. Returns True on success."""
         try:
             if audio_path.exists() and not force:
                 logger.debug(f"Audio already exists, skipping extraction: {audio_path.name}")
                 return True
 
+            # Try FFmpeg first if available
+            if self.ffmpeg_available:
+                return self._extract_audio_ffmpeg(video_path, audio_path)
+            # Fall back to moviepy
+            elif MOVIEPY_AVAILABLE:
+                return self._extract_audio_moviepy(video_path, audio_path)
+            else:
+                logger.error("No audio extraction method available (neither FFmpeg nor moviepy)")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Unexpected error extracting audio from {video_path.name}")
+            logger.exception(e)
+            return False
+
+    def _extract_audio_ffmpeg(self, video_path: Path, audio_path: Path) -> bool:
+        """Extract audio using FFmpeg"""
+        try:
             probe = ffmpeg.probe(str(video_path))
             has_audio = any(s['codec_type'] == 'audio' for s in probe['streams'])
             
@@ -94,10 +234,43 @@ class AudioProcessingService:
             logger.exception(f"Unexpected error extracting audio from {video_path.name}")
             return False
 
+    def _extract_audio_moviepy(self, video_path: Path, audio_path: Path) -> bool:
+        """Extract audio using MoviePy as fallback"""
+        try:
+            logger.info(f"Using MoviePy to extract audio from {video_path.name}")
+            
+            # Load video and extract audio
+            video = VideoFileClip(str(video_path))
+            
+            # Check if video has audio
+            if video.audio is None:
+                logger.warning(f"Video file {video_path.name} does not contain an audio stream. Skipping.")
+                video.close()
+                return False
+            
+            # Extract audio with the same parameters as FFmpeg
+            audio = video.audio
+            audio.write_audiofile(
+                str(audio_path),
+                codec='pcm_s16le',  # Same as FFmpeg
+                ffmpeg_params=['-ar', '16000', '-ac', '1']  # 16kHz, mono
+            )
+            
+            # Clean up
+            audio.close()
+            video.close()
+            
+            logger.info(f"Successfully extracted audio using MoviePy: {audio_path.name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"MoviePy error extracting audio from {video_path.name}: {str(e)}")
+            return False
+
     def _transcribe_audio(self, audio_path: Path) -> Dict:
         """Transcribes audio via Hugging Face pipeline."""
-        if not self.asr_pipeline:
-            return {'success': False, 'error': 'ASR pipeline not initialized'}
+        if not self._load_pipeline_if_needed():
+            return {'success': False, 'error': 'ASR pipeline not available'}
 
         if not audio_path.exists():
             return {'success': False, 'error': 'Audio file not found'}
@@ -138,7 +311,15 @@ class AudioProcessingService:
     def _analyze_audio_quality(self, trans_result: Dict) -> Dict:
         """Performs a detailed quality analysis based on transcription metrics."""
         if not trans_result.get('success'):
-            return {'quality_score': 0.0, 'analysis': 'Transcription failed.'}
+            # If transcription failed, provide a basic quality score based on file existence
+            if trans_result.get('error') == 'ASR pipeline not available':
+                # Audio was extracted successfully but transcription failed due to missing Whisper
+                return {
+                    'quality_score': 50.0,  # Mid-range score since we know audio exists
+                    'analysis': 'Audio extracted successfully, but transcription unavailable (Whisper model not loaded). Basic quality score assigned.'
+                }
+            else:
+                return {'quality_score': 0.0, 'analysis': f'Transcription failed: {trans_result.get("error", "Unknown error")}'}
 
         text = trans_result.get('text', '')
         segments = trans_result.get('segments', [])

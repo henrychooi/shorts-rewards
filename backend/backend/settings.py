@@ -121,11 +121,12 @@ CORS_ALLOW_CREDENTIALS = True
 # =======================
 AUDIO_PROCESSING = {
     "LMSTUDIO_BASE_URL": "http://localhost:1234/v1",
-    "WHISPER_MODEL": "whisper-small",  # or whisper-base, whisper-large
+    "WHISPER_MODEL": "openai/whisper-tiny",  # Small model for faster processing
     "MEDIA_VIDEOS_PATH": str(BASE_DIR / "media" / "videos"),
     "AUDIO_OUTPUT_PATH": str(BASE_DIR / "media" / "audio"),
     "SAMPLE_RATE": 16000,  # Optimal for Whisper
     "AUDIO_FORMAT": "wav",
+    "HF_TOKEN": os.getenv("HF_TOKEN"),  # Hugging Face token for model access
 }
 
 # =======================

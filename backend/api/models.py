@@ -21,6 +21,12 @@ class Short(models.Model):
     duration = models.FloatField(help_text="Duration in seconds", blank=True, null=True)
     is_active = models.BooleanField(default=True)
     
+    # Audio processing fields
+    transcript = models.TextField(blank=True, null=True, help_text="Auto-generated transcript")
+    audio_quality_score = models.FloatField(blank=True, null=True, help_text="Audio quality score (0-100)")
+    transcript_language = models.CharField(max_length=10, blank=True, null=True, help_text="Detected language")
+    audio_processed_at = models.DateTimeField(blank=True, null=True, help_text="When audio processing was completed")
+    
     class Meta:
         ordering = ['-created_at']
         indexes = [

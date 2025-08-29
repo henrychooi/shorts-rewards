@@ -3,6 +3,8 @@ from django.contrib.auth.models import User
 from django.db.models import F
 from decimal import Decimal
 from datetime import datetime
+from django.utils import timezone
+from pathlib import Path
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
@@ -23,7 +25,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-audio_service = AudioProcessingService()
+# Initialize audio service at module level for performance
+try:
+    audio_service = AudioProcessingService()
+except Exception as e:
+    logger.warning(f"Failed to initialize AudioProcessingService: {e}")
+    audio_service = None
 
 
 class ShortsListView(generics.ListAPIView):
@@ -40,7 +47,42 @@ class ShortCreateView(generics.CreateAPIView):
     parser_classes = (MultiPartParser, FormParser)
     
     def perform_create(self, serializer):
-        serializer.save(author=self.request.user)
+        short = serializer.save(author=self.request.user)
+        
+        # Process audio for transcript and quality score
+        self.process_video_audio(short)
+    
+    def process_video_audio(self, short):
+        """Process the uploaded video to generate transcript and quality score"""
+        try:
+            if not audio_service:
+                logger.warning(f"Audio service not available for video {short.id}")
+                return
+            
+            # Get the video file path
+            video_path = short.video.path
+            
+            # Process the single video using the correct method name
+            video_filename = Path(video_path).name
+            result = audio_service.process_single_video(video_filename)
+            
+            if result and 'error' not in result:
+                # Update the short with transcript and quality data
+                transcript_data = result.get('transcript', {})
+                quality_data = result.get('quality_analysis', {})
+                
+                short.transcript = transcript_data.get('text', '')
+                short.audio_quality_score = quality_data.get('quality_score', 0.0)
+                short.transcript_language = transcript_data.get('language', '')
+                short.audio_processed_at = timezone.now()
+                short.save(update_fields=['transcript', 'audio_quality_score', 'transcript_language', 'audio_processed_at'])
+                
+                logger.info(f"Successfully processed audio for video {short.id}: quality_score={short.audio_quality_score}")
+            else:
+                logger.error(f"Failed to process audio for video {short.id}: {result.get('error', 'Unknown error')}")
+        
+        except Exception as e:
+            logger.error(f"Exception while processing audio for video {short.id}: {str(e)}")
 
 
 class ShortDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -61,6 +103,13 @@ def process_all_videos_audio(request):
     """
     try:
         logger.info("Starting batch audio processing for all videos")
+        
+        if not audio_service:
+            return Response(
+                {'error': 'Audio processing service not available'}, 
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        
         results = audio_service.process_all_videos()
         
         # Calculate summary statistics
@@ -106,6 +155,13 @@ def process_single_video_audio(request):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         logger.info(f"Processing single video: {video_filename}")
+        
+        if not audio_service:
+            return Response({
+                'success': False,
+                'error': 'Audio processing service not available'
+            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        
         result = audio_service.process_single_video(video_filename)
         
         if 'error' in result:
@@ -140,6 +196,13 @@ def get_audio_quality_report(request):
     try:
         # This could be enhanced to read from a database where you store results
         # For now, it processes all videos to get current status
+        
+        if not audio_service:
+            return Response(
+                {'error': 'Audio processing service not available'}, 
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        
         results = audio_service.process_all_videos()
         
         # Generate report
@@ -174,6 +237,12 @@ def list_videos(request):
     List all available MP4 videos in the media directory
     """
     try:
+        if not audio_service:
+            return Response(
+                {'error': 'Audio processing service not available'}, 
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        
         videos = list(audio_service.media_videos_path.glob("*.mp4"))
         video_list = [
             {

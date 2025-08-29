@@ -5,10 +5,32 @@ from .models import Short, Wallet, Transaction, AuditLog, View
 
 @admin.register(Short)
 class ShortAdmin(admin.ModelAdmin):
-    list_display = ('title', 'author', 'view_count', 'like_count', 'comment_count', 'created_at')
-    list_filter = ('created_at', 'author')
-    search_fields = ('title', 'author__username')
-    readonly_fields = ('created_at', 'updated_at', 'like_count', 'comment_count')
+    list_display = ('title', 'author', 'view_count', 'like_count', 'comment_count', 'get_audio_quality_display', 'created_at')
+    list_filter = ('created_at', 'author', 'audio_quality_score')
+    search_fields = ('title', 'author__username', 'transcript')
+    readonly_fields = ('created_at', 'updated_at', 'like_count', 'comment_count', 'audio_processed_at')
+    fieldsets = (
+        ('Basic Info', {
+            'fields': ('title', 'author', 'video', 'duration')
+        }),
+        ('Engagement', {
+            'fields': ('view_count', 'like_count', 'comment_count')
+        }),
+        ('Audio Analysis', {
+            'fields': ('transcript', 'audio_quality_score', 'transcript_language', 'audio_processed_at'),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def get_audio_quality_display(self, obj):
+        if obj.audio_quality_score is None:
+            return "Not processed"
+        return f"{obj.audio_quality_score:.2f}"
+    get_audio_quality_display.short_description = "Audio Quality"
 
 @admin.register(Wallet)
 class WalletAdmin(admin.ModelAdmin):
