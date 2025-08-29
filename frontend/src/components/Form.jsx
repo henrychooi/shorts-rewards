@@ -145,8 +145,7 @@ function Form({ route, method }) {
           </div>
 
           <button type="submit" className="form-button" disabled={loading}>
-            {loading && <span className="loading-spinner"></span>}
-            {loading ? "Processing..." : name}
+            {loading ? <span className="loading-spinner"></span> : name}
           </button>
         </form>
 
