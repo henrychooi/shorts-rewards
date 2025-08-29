@@ -259,8 +259,19 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
           loop
           muted={isMuted}
           playsInline
+          preload="metadata"
           onClick={togglePlay}
           onEnded={() => setIsPlaying(false)}
+          onLoadedData={() => {
+            console.log("Video loaded for:", short.title);
+            // Auto-play when active and video is loaded
+            if (isActive && videoRef.current) {
+              videoRef.current.play().catch(console.error);
+            }
+          }}
+          onError={(e) => {
+            console.error("Video loading error:", e);
+          }}
         />
 
         {!isPlaying && (

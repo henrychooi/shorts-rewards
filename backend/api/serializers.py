@@ -62,7 +62,11 @@ class ShortSerializer(serializers.ModelSerializer):
             "id", "title", "description", "video", "thumbnail", "author",
             "created_at", "view_count", "duration", "like_count", "comment_count",
             "is_liked", "comments", "transcript", "audio_quality_score",
-            "transcript_language", "audio_processed_at", "comment_analysis_score"
+            "transcript_language", "audio_processed_at", "comment_analysis_score",
+            # Video analysis fields
+            "video_analysis_status", "video_quality_score", "video_analysis_summary",
+            "video_content_categories", "video_engagement_prediction", "video_sentiment_score",
+            "video_analysis_processed_at", "video_analysis_error"
         ]
         extra_kwargs = {"author": {"read_only": True}}
     

@@ -8,10 +8,11 @@ from pathlib import Path
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.http import JsonResponse
 import json
+import threading
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from .serializers import (
@@ -22,7 +23,10 @@ from .serializers import (
 from .comment_analysis_service import CommentAnalysisService
 from .models import Note, Short, Like, Comment, View, Wallet, Transaction, AuditLog
 from .audio_service import AudioProcessingService
+from .gemini_video_service import gemini_video_service
 import logging
+import os
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +56,23 @@ class ShortCreateView(generics.CreateAPIView):
         
         # Process audio for transcript and quality score
         self.process_video_audio(short)
+        
+        # Process video for comprehensive analysis using Gemini (run in background)
+        self.process_video_analysis_async(short)
+    
+    def process_video_analysis_async(self, short):
+        """Start video analysis in a background thread to avoid blocking the response"""
+        def analyze_in_background():
+            try:
+                self.process_video_analysis(short)
+            except Exception as e:
+                logger.error(f"Background video analysis failed for {short.id}: {e}")
+        
+        # Start analysis in background thread
+        analysis_thread = threading.Thread(target=analyze_in_background)
+        analysis_thread.daemon = True
+        analysis_thread.start()
+        logger.info(f"Started background video analysis for {short.id}")
     
     def process_video_audio(self, short):
         """Process the uploaded video to generate transcript and quality score"""
@@ -84,6 +105,82 @@ class ShortCreateView(generics.CreateAPIView):
         
         except Exception as e:
             logger.error(f"Exception while processing audio for video {short.id}: {str(e)}")
+    
+    def process_video_analysis(self, short):
+        """Process the uploaded video using Gemini AI for comprehensive analysis"""
+        try:
+            if not gemini_video_service.is_available():
+                logger.warning(f"Gemini video analysis service not available for video {short.id}")
+                short.video_analysis_status = 'failed'
+                short.video_analysis_error = 'Gemini service not available'
+                short.save(update_fields=['video_analysis_status', 'video_analysis_error'])
+                return
+            
+            # Set status to processing
+            short.video_analysis_status = 'processing'
+            short.save(update_fields=['video_analysis_status'])
+            
+            # Get the video file path
+            video_path = short.video.path
+            logger.info(f"Starting Gemini video analysis for {short.id}: {video_path}")
+            
+            # Analyze the video using Gemini
+            analysis_result = gemini_video_service.analyze_video(video_path)
+            
+            if analysis_result.get('success', False):
+                # Update the short with enhanced analysis data
+                short.video_analysis_summary = analysis_result.get('summary', '')
+                short.video_analysis_status = 'completed'
+                short.video_analysis_processed_at = timezone.now()
+                short.video_analysis_error = None
+                
+                # Enhanced analysis fields - updated for balanced scoring
+                short.video_content_engagement = analysis_result.get('content_engagement', 50)
+                short.video_demographic_appeal = analysis_result.get('audience_appeal', 50)  # audience_appeal maps to demographic_appeal
+                short.video_content_focus = analysis_result.get('quality_score', 50)  # quality includes focus/clarity
+                short.video_content_sensitivity = analysis_result.get('content_sensitivity', 5)
+                short.video_originality = analysis_result.get('originality', 50)
+                short.video_technical_quality = analysis_result.get('quality_score', 50)  # quality_score includes technical
+                short.video_viral_potential = analysis_result.get('viral_potential', 50)
+                short.video_overall_score = analysis_result.get('overall_score', 50)
+                
+                # Store detailed summary if available
+                detailed_summary = analysis_result.get('detailed_summary', '')
+                if detailed_summary:
+                    short.video_analysis_summary = detailed_summary
+                
+                # Legacy support - remove unused fields in new system
+                short.video_detailed_breakdown = {}  # Simplified system doesn't use this
+                short.video_demographic_analysis = {}  # Simplified system doesn't use this
+                
+                # Maintain legacy fields for backward compatibility
+                short.video_quality_score = analysis_result.get('quality_score', 50)  # Use new quality_score
+                short.video_engagement_prediction = analysis_result.get('content_engagement', 50)
+                short.video_sentiment_score = analysis_result.get('sentiment_score', 0)  # Not part of new system
+                short.video_content_categories = analysis_result.get('content_categories', [])
+                
+                short.save(update_fields=[
+                    'video_analysis_summary', 'video_analysis_status', 'video_analysis_processed_at', 'video_analysis_error',
+                    'video_content_engagement', 'video_demographic_appeal', 'video_content_focus', 'video_content_sensitivity',
+                    'video_originality', 'video_technical_quality', 'video_viral_potential', 'video_overall_score',
+                    'video_detailed_breakdown', 'video_demographic_analysis',
+                    'video_quality_score', 'video_engagement_prediction', 'video_sentiment_score', 'video_content_categories'
+                ])
+                
+                logger.info(f"Successfully analyzed video {short.id}: overall={short.video_overall_score:.1f}, engagement={short.video_content_engagement}, demographics={short.video_demographic_appeal}, originality={short.video_originality}")
+            else:
+                # Analysis failed
+                error_msg = analysis_result.get('error', 'Unknown analysis error')
+                short.video_analysis_status = 'failed'
+                short.video_analysis_error = error_msg
+                short.save(update_fields=['video_analysis_status', 'video_analysis_error'])
+                logger.error(f"Failed to analyze video {short.id}: {error_msg}")
+        
+        except Exception as e:
+            logger.error(f"Exception while analyzing video {short.id}: {str(e)}")
+            short.video_analysis_status = 'failed'
+            short.video_analysis_error = str(e)
+            short.save(update_fields=['video_analysis_status', 'video_analysis_error'])
 
 
 class ShortDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -337,6 +434,30 @@ def add_comment(request, short_id):
     
     if serializer.is_valid():
         comment = serializer.save(user=request.user, short=short)
+        
+        # Automatically analyze the new comment for sentiment in background
+        def analyze_comment_background():
+            try:
+                from .comment_analysis_service import CommentAnalysisService
+                analysis_service = CommentAnalysisService()
+                
+                # Analyze the individual comment and update short's aggregate score
+                result = analysis_service.analyze_single_comment(comment)
+                
+                if result.get('error'):
+                    logger.error(f"Comment analysis failed for comment {comment.id}: {result['error']}")
+                else:
+                    logger.info(f"Successfully analyzed comment {comment.id} - Score: {result.get('sentiment_score')}")
+                
+            except Exception as e:
+                logger.error(f"Error in automatic comment analysis for short {short_id}: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+        
+        # Start comment analysis in background thread
+        analysis_thread = threading.Thread(target=analyze_comment_background)
+        analysis_thread.daemon = True
+        analysis_thread.start()
         
         # Award comment reward to the short's author
         comment_reward = 10.005  # $10.005 per comment
@@ -974,3 +1095,872 @@ def analyze_text_sentiment(request):
             'success': False,
             'error': f'Analysis failed: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def analyze_single_video(request):
+    """
+    Manually trigger Gemini analysis for a single video
+    Expected payload: {"short_id": "uuid"}
+    """
+    try:
+        short_id = request.data.get('short_id')
+        if not short_id:
+            return Response({'error': 'short_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        short = get_object_or_404(Short, id=short_id, author=request.user, is_active=True)
+        
+        if not gemini_video_service.is_available():
+            return Response(
+                {'error': 'Gemini video analysis service is not available'}, 
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        
+        # Check if analysis is already in progress
+        if short.video_analysis_status == 'processing':
+            return Response(
+                {'message': 'Video analysis is already in progress'}, 
+                status=status.HTTP_409_CONFLICT
+            )
+        
+        # Set status to processing
+        short.video_analysis_status = 'processing'
+        short.save(update_fields=['video_analysis_status'])
+        
+        try:
+            # Analyze the video
+            video_path = short.video.path
+            analysis_result = gemini_video_service.analyze_video(video_path)
+            
+            if analysis_result.get('success', False):
+                # Update the short with enhanced analysis data
+                short.video_analysis_summary = analysis_result.get('summary', '')
+                short.video_analysis_status = 'completed'
+                short.video_analysis_processed_at = timezone.now()
+                short.video_analysis_error = None
+                
+                # Enhanced analysis fields - updated for balanced scoring
+                short.video_content_engagement = analysis_result.get('content_engagement', 50)
+                short.video_demographic_appeal = analysis_result.get('audience_appeal', 50)  # audience_appeal maps to demographic_appeal
+                short.video_content_focus = analysis_result.get('quality_score', 50)  # quality includes focus/clarity
+                short.video_content_sensitivity = analysis_result.get('content_sensitivity', 5)
+                short.video_originality = analysis_result.get('originality', 50)
+                short.video_technical_quality = analysis_result.get('quality_score', 50)  # quality_score includes technical
+                short.video_viral_potential = analysis_result.get('viral_potential', 50)
+                short.video_overall_score = analysis_result.get('overall_score', 50)
+                
+                # Store detailed summary if available
+                detailed_summary = analysis_result.get('detailed_summary', '')
+                if detailed_summary:
+                    short.video_analysis_summary = detailed_summary
+                
+                # Legacy support - remove unused fields in new system
+                short.video_detailed_breakdown = {}  # Simplified system doesn't use this
+                short.video_demographic_analysis = {}  # Simplified system doesn't use this
+                
+                # Maintain legacy fields for backward compatibility
+                short.video_quality_score = analysis_result.get('quality_score', 50)  # Use new quality_score
+                short.video_engagement_prediction = analysis_result.get('content_engagement', 50)
+                short.video_sentiment_score = analysis_result.get('sentiment_score', 0)  # Not part of new system
+                short.video_content_categories = analysis_result.get('content_categories', [])
+                
+                short.save(update_fields=[
+                    'video_analysis_summary', 'video_analysis_status', 'video_analysis_processed_at', 'video_analysis_error',
+                    'video_content_engagement', 'video_demographic_appeal', 'video_content_focus', 'video_content_sensitivity',
+                    'video_originality', 'video_technical_quality', 'video_viral_potential', 'video_overall_score',
+                    'video_detailed_breakdown', 'video_demographic_analysis',
+                    'video_quality_score', 'video_engagement_prediction', 'video_sentiment_score', 'video_content_categories'
+                ])
+                
+                return Response({
+                    'success': True,
+                    'message': 'Enhanced video analysis completed successfully',
+                    'analysis': {
+                        'overall_score': short.video_overall_score,
+                        'content_engagement': short.video_content_engagement,
+                        'demographic_appeal': short.video_demographic_appeal,
+                        'originality': short.video_originality,
+                        'content_sensitivity': short.video_content_sensitivity,
+                        'technical_quality': short.video_technical_quality,
+                        'viral_potential': short.video_viral_potential,
+                        'detailed_breakdown': short.video_detailed_breakdown,
+                        # Legacy fields for compatibility
+                        'quality_score': short.video_quality_score,
+                        'engagement_prediction': short.video_engagement_prediction,
+                        'sentiment_score': short.video_sentiment_score,
+                        'content_categories': short.video_content_categories,
+                        'summary': short.video_analysis_summary,
+                    }
+                }, status=status.HTTP_200_OK)
+            else:
+                # Analysis failed
+                error_msg = analysis_result.get('error', 'Unknown analysis error')
+                short.video_analysis_status = 'failed'
+                short.video_analysis_error = error_msg
+                short.save(update_fields=['video_analysis_status', 'video_analysis_error'])
+                
+                return Response({
+                    'success': False,
+                    'error': error_msg
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        except Exception as e:
+            # Update status to failed
+            short.video_analysis_status = 'failed'
+            short.video_analysis_error = str(e)
+            short.save(update_fields=['video_analysis_status', 'video_analysis_error'])
+            
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    except Exception as e:
+        logger.error(f"Error in analyze_single_video: {e}")
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_video_analysis(request, short_id):
+    """
+    Get analysis results for a specific video
+    """
+    try:
+        short = get_object_or_404(Short, id=short_id, is_active=True)
+        
+        # Check if user can access this video (author or public)
+        if short.author != request.user:
+            # For now, allow anyone to see analysis of public videos
+            # You can modify this based on your privacy requirements
+            pass
+        
+        if (short.video_analysis_status == 'completed' and 
+            short.video_quality_score is not None and 
+            short.video_analysis_summary):
+            
+            return Response({
+                'success': True,
+                'analysis': {
+                    'status': short.video_analysis_status,
+                    'quality_score': short.video_quality_score,
+                    'engagement_prediction': short.video_engagement_prediction,
+                    'sentiment_score': short.video_sentiment_score,
+                    'content_categories': short.video_content_categories,
+                    'summary': short.video_analysis_summary,
+                    'processed_at': short.video_analysis_processed_at,
+                }
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response({
+                'success': False,
+                'status': short.video_analysis_status,
+                'error': short.video_analysis_error,
+                'message': 'Video analysis not completed yet'
+            }, status=status.HTTP_202_ACCEPTED)
+    
+    except Exception as e:
+        logger.error(f"Error getting video analysis: {e}")
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def batch_analyze_videos(request):
+    """
+    Trigger analysis for all user's videos that haven't been analyzed yet
+    """
+    try:
+        if not gemini_video_service.is_available():
+            return Response(
+                {'error': 'Gemini video analysis service is not available'}, 
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        
+        # Get all user's videos that need analysis
+        videos_to_analyze = Short.objects.filter(
+            author=request.user,
+            is_active=True,
+            video_analysis_status__in=['pending', 'failed']
+        )[:10]  # Limit to 10 videos at once to avoid overwhelming the API
+        
+        if not videos_to_analyze.exists():
+            return Response({
+                'message': 'No videos need analysis',
+                'analyzed_count': 0
+            }, status=status.HTTP_200_OK)
+        
+        results = []
+        successful_count = 0
+        
+        for short in videos_to_analyze:
+            try:
+                # Set status to processing
+                short.video_analysis_status = 'processing'
+                short.save(update_fields=['video_analysis_status'])
+                
+                # Analyze the video
+                video_path = short.video.path
+                analysis_result = gemini_video_service.analyze_video(video_path)
+                
+                if analysis_result.get('success', False):
+                    # Update the short with analysis data
+                    short.video_quality_score = analysis_result.get('quality_score', 0)
+                    short.video_analysis_summary = analysis_result.get('summary', '')
+                    short.video_content_categories = analysis_result.get('content_categories', [])
+                    short.video_engagement_prediction = analysis_result.get('engagement_prediction', 0)
+                    short.video_sentiment_score = analysis_result.get('sentiment_score', 0)
+                    short.video_analysis_status = 'completed'
+                    short.video_analysis_processed_at = timezone.now()
+                    short.video_analysis_error = None
+                    
+                    short.save(update_fields=[
+                        'video_quality_score', 'video_analysis_summary', 'video_content_categories',
+                        'video_engagement_prediction', 'video_sentiment_score', 'video_analysis_status',
+                        'video_analysis_processed_at', 'video_analysis_error'
+                    ])
+                    
+                    successful_count += 1
+                    results.append({
+                        'short_id': str(short.id),
+                        'title': short.title,
+                        'success': True,
+                        'quality_score': short.video_quality_score,
+                    })
+                else:
+                    # Analysis failed
+                    error_msg = analysis_result.get('error', 'Unknown analysis error')
+                    short.video_analysis_status = 'failed'
+                    short.video_analysis_error = error_msg
+                    short.save(update_fields=['video_analysis_status', 'video_analysis_error'])
+                    
+                    results.append({
+                        'short_id': str(short.id),
+                        'title': short.title,
+                        'success': False,
+                        'error': error_msg
+                    })
+                
+                # Add delay between requests to respect rate limits
+                import time
+                time.sleep(1)
+                
+            except Exception as e:
+                short.video_analysis_status = 'failed'
+                short.video_analysis_error = str(e)
+                short.save(update_fields=['video_analysis_status', 'video_analysis_error'])
+                
+                results.append({
+                    'short_id': str(short.id),
+                    'title': short.title,
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        return Response({
+            'success': True,
+            'message': f'Batch analysis completed: {successful_count}/{len(results)} successful',
+            'analyzed_count': successful_count,
+            'total_processed': len(results),
+            'results': results
+        }, status=status.HTTP_200_OK)
+    
+    except Exception as e:
+        logger.error(f"Error in batch_analyze_videos: {e}")
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def video_analysis_report(request):
+    """
+    Get a comprehensive report of all analyzed videos for the user
+    """
+    try:
+        # Get all user's analyzed videos
+        analyzed_videos = Short.objects.filter(
+            author=request.user,
+            is_active=True,
+            video_analysis_status='completed',
+            video_quality_score__isnull=False,
+        )
+        
+        if not analyzed_videos.exists():
+            return Response({
+                'message': 'No analyzed videos found',
+                'total_videos': 0
+            }, status=status.HTTP_200_OK)
+        
+        # Calculate summary statistics
+        total_videos = analyzed_videos.count()
+        avg_quality = sum(v.video_quality_score for v in analyzed_videos) / total_videos
+        avg_engagement = sum(v.video_engagement_prediction or 0 for v in analyzed_videos) / total_videos
+        avg_sentiment = sum(v.video_sentiment_score or 0 for v in analyzed_videos) / total_videos
+        
+        # Quality distribution
+        quality_distribution = {
+            'excellent': analyzed_videos.filter(video_quality_score__gte=80).count(),
+            'good': analyzed_videos.filter(video_quality_score__gte=60, video_quality_score__lt=80).count(),
+            'fair': analyzed_videos.filter(video_quality_score__gte=40, video_quality_score__lt=60).count(),
+            'poor': analyzed_videos.filter(video_quality_score__lt=40).count()
+        }
+        
+        # Collect all categories
+        all_categories = []
+        for video in analyzed_videos:
+            if video.video_content_categories:
+                all_categories.extend(video.video_content_categories)
+        
+        # Count category frequency
+        category_counts = {}
+        for category in all_categories:
+            category_counts[category] = category_counts.get(category, 0) + 1
+        
+        # Top categories
+        top_categories = sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+        
+        return Response({
+            'success': True,
+            'summary': {
+                'total_analyzed_videos': total_videos,
+                'average_quality_score': round(avg_quality, 2),
+                'average_engagement_prediction': round(avg_engagement, 2),
+                'average_sentiment_score': round(avg_sentiment, 3),
+                'quality_distribution': quality_distribution,
+                'top_content_categories': top_categories
+            },
+            'videos': [{
+                'id': str(video.id),
+                'title': video.title,
+                'quality_score': video.video_quality_score,
+                'engagement_prediction': video.video_engagement_prediction,
+                'sentiment_score': video.video_sentiment_score,
+                'content_categories': video.video_content_categories,
+                'summary': video.video_analysis_summary[:200] + '...' if len(video.video_analysis_summary or '') > 200 else video.video_analysis_summary,
+                'processed_at': video.video_analysis_processed_at
+            } for video in analyzed_videos.order_by('-video_analysis_processed_at')]
+        }, status=status.HTTP_200_OK)
+    
+    except Exception as e:
+        logger.error(f"Error generating video analysis report: {e}")
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    """
+    Analyze a single video by Short ID
+    """
+    try:
+        short_id = request.data.get('short_id')
+        force_reanalysis = request.data.get('force_reanalysis', False)
+        
+        if not short_id:
+            return Response(
+                {"error": "short_id is required"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get the short
+        try:
+            short = Short.objects.get(id=short_id)
+        except Short.DoesNotExist:
+            return Response(
+                {"error": "Short not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check if user owns the video or is admin
+        if short.author != request.user and not request.user.is_staff:
+            return Response(
+                {"error": "Permission denied"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Check if video file exists
+        if not short.video_exists():
+            return Response(
+                {"error": "Video file not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check if already analyzed (unless force reanalysis)
+        if (short.video_analysis_status == 'completed' and 
+            short.video_quality_score is not None and 
+            not force_reanalysis):
+            return Response({
+                "message": "Video already analyzed",
+                "analysis": {
+                    "video_quality_score": short.video_quality_score,
+                    "engagement_score": short.engagement_score,
+                    "technical_score": short.technical_score,
+                    "grade": short.get_quality_grade(),
+                    "summary": short.video_analysis_summary,
+                    "processed_at": short.video_processed_at
+                }
+            })
+        
+        # Initialize analysis service
+        video_service = VideoAnalysisService()
+        
+        # Create analysis log
+        analysis_log = VideoAnalysisLog.objects.create(
+            short=short,
+            analysis_type='reanalysis' if force_reanalysis else 'manual',
+            file_size_mb=os.path.getsize(short.video.path) / (1024 * 1024)
+        )
+        
+        # Update status to processing
+        short.video_analysis_status = 'processing'
+        short.save(update_fields=['video_analysis_status'])
+        
+        try:
+            # Process the video
+            analysis_result = video_service.process_single_video(short.video.path)
+            
+            if 'error' in analysis_result:
+                # Log failure
+                analysis_log.mark_completed(
+                    success=False,
+                    error_message=analysis_result['error'],
+                    result=analysis_result
+                )
+                
+                # Update short with error
+                short.update_video_analysis(analysis_result)
+                
+                return Response(
+                    {"error": analysis_result['error']},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
+            # Success - update the Short model
+            short.update_video_analysis(analysis_result)
+            
+            # Log success
+            analysis_log.mark_completed(
+                success=True,
+                result=analysis_result
+            )
+            
+            return Response({
+                "success": True,
+                "message": "Video analysis completed successfully",
+                "analysis": {
+                    "video_quality_score": short.video_quality_score,
+                    "content_quality_score": short.content_quality_score,
+                    "engagement_score": short.engagement_score,
+                    "technical_score": short.technical_score,
+                    "viral_potential": short.viral_potential,
+                    "mobile_optimization": short.mobile_optimization,
+                    "comprehensive_score": short.get_comprehensive_quality_score(),
+                    "grade": short.get_quality_grade(),
+                    "summary": short.video_analysis_summary,
+                    "category": short.content_category,
+                    "strengths": short.analysis_strengths,
+                    "weaknesses": short.analysis_weaknesses,
+                    "recommendations": short.analysis_recommendations,
+                    "technical_metrics": short.technical_metrics,
+                    "processed_at": short.video_processed_at
+                }
+            })
+            
+        except Exception as e:
+            error_msg = f"Analysis failed: {str(e)}"
+            
+            # Log failure
+            analysis_log.mark_completed(
+                success=False,
+                error_message=error_msg
+            )
+            
+            # Update short status
+            short.video_analysis_status = 'failed'
+            short.video_analysis_error = error_msg
+            short.save(update_fields=['video_analysis_status', 'video_analysis_error'])
+            
+            return Response(
+                {"error": error_msg},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    except Exception as e:
+        return Response(
+            {"error": f"Unexpected error: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def batch_analyze_videos(request):
+    """
+    Admin endpoint to analyze multiple videos in batch
+    """
+    try:
+        reanalyze = request.data.get('reanalyze', False)
+        limit = request.data.get('limit', 10)  # Process max 10 at a time to avoid timeouts
+        
+        # Get videos that need analysis
+        if reanalyze:
+            shorts_to_process = Short.objects.filter(
+                is_active=True
+            )[:limit]
+        else:
+            shorts_to_process = Short.objects.filter(
+                is_active=True,
+                video_analysis_status__in=['pending', 'failed']
+            )[:limit]
+        
+        if not shorts_to_process.exists():
+            return Response({
+                "message": "No videos found that need analysis",
+                "processed_count": 0
+            })
+        
+        # Initialize analysis service
+        video_service = VideoAnalysisService()
+        
+        results = []
+        successful_count = 0
+        
+        for short in shorts_to_process:
+            if not short.video_exists():
+                results.append({
+                    "short_id": str(short.id),
+                    "title": short.title,
+                    "status": "error",
+                    "error": "Video file not found"
+                })
+                continue
+            
+            # Create analysis log
+            analysis_log = VideoAnalysisLog.objects.create(
+                short=short,
+                analysis_type='reanalysis' if reanalyze else 'batch',
+                file_size_mb=os.path.getsize(short.video.path) / (1024 * 1024)
+            )
+            
+            try:
+                # Update status
+                short.video_analysis_status = 'processing'
+                short.save(update_fields=['video_analysis_status'])
+                
+                # Process video
+                analysis_result = video_service.process_single_video(short.video.path)
+                
+                if 'error' in analysis_result:
+                    analysis_log.mark_completed(
+                        success=False,
+                        error_message=analysis_result['error'],
+                        result=analysis_result
+                    )
+                    
+                    short.update_video_analysis(analysis_result)
+                    
+                    results.append({
+                        "short_id": str(short.id),
+                        "title": short.title,
+                        "status": "error",
+                        "error": analysis_result['error']
+                    })
+                else:
+                    # Success
+                    short.update_video_analysis(analysis_result)
+                    analysis_log.mark_completed(success=True, result=analysis_result)
+                    
+                    successful_count += 1
+                    results.append({
+                        "short_id": str(short.id),
+                        "title": short.title,
+                        "status": "success",
+                        "quality_score": short.video_quality_score,
+                        "engagement_score": short.engagement_score,
+                        "grade": short.get_quality_grade()
+                    })
+                
+                # Small delay between videos
+                time.sleep(1)
+                
+            except Exception as e:
+                error_msg = f"Processing failed: {str(e)}"
+                
+                analysis_log.mark_completed(
+                    success=False,
+                    error_message=error_msg
+                )
+                
+                short.video_analysis_status = 'failed'
+                short.video_analysis_error = error_msg
+                short.save(update_fields=['video_analysis_status', 'video_analysis_error'])
+                
+                results.append({
+                    "short_id": str(short.id),
+                    "title": short.title,
+                    "status": "error",
+                    "error": error_msg
+                })
+        
+        return Response({
+            "success": True,
+            "message": f"Batch analysis completed. {successful_count}/{len(results)} videos processed successfully.",
+            "processed_count": len(results),
+            "successful_count": successful_count,
+            "results": results
+        })
+        
+    except Exception as e:
+        return Response(
+            {"error": f"Batch analysis failed: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def video_analysis_report(request):
+    """
+    Generate comprehensive video analysis report
+    """
+    try:
+        # Get filter parameters
+        min_quality = request.GET.get('min_quality', 0)
+        max_quality = request.GET.get('max_quality', 100)
+        category = request.GET.get('category', None)
+        
+        # Base queryset
+        queryset = Short.objects.filter(
+            video_analysis_status='completed',
+            video_quality_score__isnull=False,
+            video_quality_score__gte=min_quality,
+            video_quality_score__lte=max_quality
+        )
+        
+        if category:
+            queryset = queryset.filter(content_category=category)
+        
+        analyzed_shorts = queryset.all()
+        
+        if not analyzed_shorts.exists():
+            return Response({
+                "message": "No analyzed videos found matching criteria",
+                "total_videos": 0
+            })
+        
+        # Calculate statistics
+        total_videos = analyzed_shorts.count()
+        
+        # Score calculations
+        quality_scores = [s.video_quality_score for s in analyzed_shorts]
+        engagement_scores = [s.engagement_score for s in analyzed_shorts if s.engagement_score]
+        technical_scores = [s.technical_score for s in analyzed_shorts if s.technical_score]
+        
+        avg_quality = sum(quality_scores) / len(quality_scores)
+        avg_engagement = sum(engagement_scores) / len(engagement_scores) if engagement_scores else 0
+        avg_technical = sum(technical_scores) / len(technical_scores) if technical_scores else 0
+        
+        # Grade distribution
+        grades = {}
+        for short in analyzed_shorts:
+            grade = short.get_quality_grade()
+            grades[grade] = grades.get(grade, 0) + 1
+        
+        # Quality distribution
+        quality_distribution = {
+            'excellent': len([s for s in quality_scores if s >= 90]),
+            'very_good': len([s for s in quality_scores if 80 <= s < 90]),
+            'good': len([s for s in quality_scores if 70 <= s < 80]),
+            'fair': len([s for s in quality_scores if 60 <= s < 70]),
+            'needs_improvement': len([s for s in quality_scores if s < 60])
+        }
+        
+        # Category distribution
+        categories = {}
+        for short in analyzed_shorts:
+            cat = short.content_category or 'unknown'
+            categories[cat] = categories.get(cat, 0) + 1
+        
+        # Top performers
+        top_quality = analyzed_shorts.order_by('-video_quality_score')[:5]
+        top_engagement = analyzed_shorts.order_by('-engagement_score')[:5]
+        bottom_quality = analyzed_shorts.order_by('video_quality_score')[:5]
+        
+        # Processing statistics
+        total_shorts = Short.objects.filter(is_active=True).count()
+        completed_analysis = Short.objects.filter(video_analysis_status='completed').count()
+        failed_analysis = Short.objects.filter(video_analysis_status='failed').count()
+        pending_analysis = Short.objects.filter(video_analysis_status='pending').count()
+        
+        return Response({
+            "success": True,
+            "report": {
+                "overview": {
+                    "total_videos_analyzed": total_videos,
+                    "average_quality_score": round(avg_quality, 2),
+                    "average_engagement_score": round(avg_engagement, 2),
+                    "average_technical_score": round(avg_technical, 2)
+                },
+                "distributions": {
+                    "grades": grades,
+                    "quality_levels": quality_distribution,
+                    "content_categories": categories
+                },
+                "top_performers": {
+                    "highest_quality": [
+                        {
+                            "id": str(s.id),
+                            "title": s.title,
+                            "quality_score": s.video_quality_score,
+                            "grade": s.get_quality_grade()
+                        } for s in top_quality
+                    ],
+                    "highest_engagement": [
+                        {
+                            "id": str(s.id),
+                            "title": s.title,
+                            "engagement_score": s.engagement_score or 0,
+                            "quality_score": s.video_quality_score
+                        } for s in top_engagement
+                    ]
+                },
+                "needs_improvement": [
+                    {
+                        "id": str(s.id),
+                        "title": s.title,
+                        "quality_score": s.video_quality_score,
+                        "main_issues": s.analysis_weaknesses[:3] if s.analysis_weaknesses else []
+                    } for s in bottom_quality
+                ],
+                "processing_status": {
+                    "total_shorts_in_system": total_shorts,
+                    "completed_analysis": completed_analysis,
+                    "failed_analysis": failed_analysis,
+                    "pending_analysis": pending_analysis,
+                    "completion_rate": round((completed_analysis / total_shorts) * 100, 2) if total_shorts > 0 else 0
+                }
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error generating video analysis report: {str(e)}")
+        return Response(
+            {"error": f"Report generation failed: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_video_analysis(request, short_id):
+    """
+    Get analysis results for a specific video
+    """
+    try:
+        short = Short.objects.get(id=short_id)
+        
+        # Check permissions
+        if short.author != request.user and not request.user.is_staff:
+            return Response(
+                {"error": "Permission denied"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if short.video_analysis_status != 'completed':
+            return Response({
+                "status": short.video_analysis_status,
+                "message": f"Analysis status: {short.get_video_analysis_status_display()}",
+                "error": short.video_analysis_error
+            })
+        
+        return Response({
+            "success": True,
+            "analysis": {
+                "scores": {
+                    "overall_quality": short.video_quality_score,
+                    "content_quality": short.content_quality_score,
+                    "engagement": short.engagement_score,
+                    "technical": short.technical_score,
+                    "viral_potential": short.viral_potential,
+                    "mobile_optimization": short.mobile_optimization,
+                    "comprehensive": short.get_comprehensive_quality_score()
+                },
+                "grade": short.get_quality_grade(),
+                "summary": short.video_analysis_summary,
+                "category": short.content_category,
+                "feedback": {
+                    "strengths": short.analysis_strengths,
+                    "weaknesses": short.analysis_weaknesses,
+                    "recommendations": short.analysis_recommendations
+                },
+                "technical_details": short.technical_metrics,
+                "processed_at": short.video_processed_at,
+                "status": short.video_analysis_status
+            }
+        })
+        
+    except Short.DoesNotExist:
+        return Response(
+            {"error": "Short not found"}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {"error": f"Error retrieving analysis: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def trigger_automatic_analysis(request):
+    """
+    Admin endpoint to trigger automatic analysis for newly uploaded videos
+    """
+    try:
+        # Get videos uploaded in the last hour that haven't been analyzed
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        recent_videos = Short.objects.filter(
+            created_at__gte=timezone.now() - timedelta(hours=1),
+            video_analysis_status='pending'
+        )
+        
+        processed_count = 0
+        for video in recent_videos:
+            try:
+                # Trigger video analysis
+                if gemini_video_service.is_available():
+                    video.video_analysis_status = 'processing'
+                    video.save(update_fields=['video_analysis_status'])
+                    
+                    # Analyze the video
+                    analysis_result = gemini_video_service.analyze_video(video.video.path)
+                    
+                    if analysis_result.get('success', False):
+                        video.video_quality_score = analysis_result.get('quality_score', 0)
+                        video.video_analysis_summary = analysis_result.get('summary', '')
+                        video.video_content_categories = analysis_result.get('content_categories', [])
+                        video.video_engagement_prediction = analysis_result.get('engagement_prediction', 0)
+                        video.video_sentiment_score = analysis_result.get('sentiment_score', 0)
+                        video.video_analysis_status = 'completed'
+                        video.video_analysis_processed_at = timezone.now()
+                        video.video_analysis_error = None
+                    else:
+                        video.video_analysis_status = 'failed'
+                        video.video_analysis_error = analysis_result.get('error', 'Unknown error')
+                    
+                    video.save()
+                    processed_count += 1
+                    
+            except Exception as e:
+                logger.error(f"Error in automatic analysis for video {video.id}: {e}")
+                video.video_analysis_status = 'failed'
+                video.video_analysis_error = str(e)
+                video.save()
+        
+        return Response({
+            'success': True,
+            'message': f'Automatic analysis completed for {processed_count} videos',
+            'processed_count': processed_count
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f"Error in trigger_automatic_analysis: {e}")
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

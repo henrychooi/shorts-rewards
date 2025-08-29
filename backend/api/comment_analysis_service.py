@@ -267,3 +267,51 @@ class CommentAnalysisService:
                 'max': max(scores)
             } if scores else None
         }
+
+    def analyze_single_comment(self, comment: Comment) -> Dict[str, Any]:
+        """
+        Convenience method to analyze a single comment and update its short's aggregate score.
+        
+        Args:
+            comment: Comment instance to analyze
+            
+        Returns:
+            Analysis results dictionary
+        """
+        # Analyze the comment
+        result = self.analyze_comment_instance(comment)
+        
+        if not result.get('error'):
+            # Update the short's aggregate comment analysis score
+            short = comment.short
+            self.update_short_aggregate_score(short)
+            
+        return result
+
+    def update_short_aggregate_score(self, short: Short) -> float:
+        """
+        Update the aggregate comment analysis score for a short.
+        
+        Args:
+            short: Short instance to update
+            
+        Returns:
+            New aggregate score
+        """
+        # Get all analyzed comments for this short
+        analyzed_comments = short.comments.filter(
+            is_active=True, 
+            sentiment_score__isnull=False
+        )
+        
+        if analyzed_comments.exists():
+            # Calculate average sentiment score
+            scores = [c.sentiment_score for c in analyzed_comments if c.sentiment_score is not None]
+            if scores:
+                aggregate_score = sum(scores) / len(scores)
+                short.comment_analysis_score = aggregate_score
+                short.save(update_fields=['comment_analysis_score'])
+                logger.info(f"Updated aggregate comment score for short {short.id}: {aggregate_score}")
+                return aggregate_score
+        
+        return None

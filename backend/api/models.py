@@ -30,6 +30,39 @@ class Short(models.Model):
     # Comment analysis fields
     comment_analysis_score = models.FloatField(null=True, blank=True, help_text="Aggregated comment sentiment score (-1 to 1)")
     
+    # Video analysis fields using Gemini API
+    video_analysis_status = models.CharField(
+        max_length=20, 
+        choices=[
+            ('pending', 'Pending'),
+            ('processing', 'Processing'),
+            ('completed', 'Completed'),
+            ('failed', 'Failed')
+        ],
+        default='pending',
+        help_text="Status of video analysis using Gemini API"
+    )
+    # Legacy fields (kept for compatibility)
+    video_quality_score = models.FloatField(blank=True, null=True, help_text="Legacy: Technical quality score (0-100) from Gemini analysis")
+    video_analysis_summary = models.TextField(blank=True, null=True, help_text="AI-generated summary of video content")
+    video_content_categories = models.JSONField(default=list, blank=True, help_text="Content categories identified by AI")
+    video_engagement_prediction = models.FloatField(blank=True, null=True, help_text="Legacy: Predicted engagement score (0-100)")
+    video_sentiment_score = models.FloatField(blank=True, null=True, help_text="Content sentiment analysis (-1 to 1)")
+    video_analysis_processed_at = models.DateTimeField(blank=True, null=True, help_text="When video analysis was completed")
+    video_analysis_error = models.TextField(blank=True, null=True, help_text="Error message if analysis failed")
+    
+    # Enhanced video analysis fields
+    video_content_engagement = models.FloatField(blank=True, null=True, help_text="Content engagement score (0-100)")
+    video_demographic_appeal = models.FloatField(blank=True, null=True, help_text="Demographic appeal score (0-100)")
+    video_content_focus = models.FloatField(blank=True, null=True, help_text="Content focus and clarity score (0-100)")
+    video_content_sensitivity = models.FloatField(blank=True, null=True, help_text="Content appropriateness score (0-5)")
+    video_originality = models.FloatField(blank=True, null=True, help_text="Originality and creativity score (0-100)")
+    video_technical_quality = models.FloatField(blank=True, null=True, help_text="Technical production quality score (0-100)")
+    video_viral_potential = models.FloatField(blank=True, null=True, help_text="Viral potential and shareability score (0-100)")
+    video_overall_score = models.FloatField(blank=True, null=True, help_text="Weighted overall analysis score (0-100)")
+    video_detailed_breakdown = models.JSONField(default=dict, blank=True, help_text="Detailed score breakdown")
+    video_demographic_analysis = models.JSONField(default=dict, blank=True, help_text="Demographic-specific analysis data")
+    
     class Meta:
         ordering = ['-created_at']
         indexes = [

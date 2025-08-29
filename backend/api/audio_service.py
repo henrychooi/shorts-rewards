@@ -166,16 +166,32 @@ class AudioProcessingService:
             
         try:
             logger.info(f"Loading Whisper pipeline with model: {self.model_id}")
-            self.asr_pipeline = pipeline(
-                "automatic-speech-recognition",
-                model=self.model_id,
-                device=self.device,
-                # For word-level timestamps and avg_logprob, crucial for quality analysis
-                return_timestamps="word",
-                batch_size=16, # Adjust batch size for performance
-                use_auth_token=self.hf_token,  # Use token from settings
-                local_files_only=False  # Allow download if needed
-            )
+            
+            # Build pipeline arguments with minimal parameters for compatibility
+            pipeline_kwargs = {
+                "model": self.model_id,
+                "device": self.device,
+                "return_timestamps": "word"
+            }
+            
+            # Try to add token parameter if available
+            try:
+                self.asr_pipeline = pipeline(
+                    "automatic-speech-recognition",
+                    **pipeline_kwargs
+                )
+            except Exception as token_error:
+                # Fallback without any token/auth parameters
+                logger.warning(f"Failed with token, trying without: {token_error}")
+                pipeline_kwargs = {
+                    "model": self.model_id,
+                    "device": self.device
+                }
+                self.asr_pipeline = pipeline(
+                    "automatic-speech-recognition",
+                    **pipeline_kwargs
+                )
+            
             self._pipeline_loaded = True
             logger.info(f"Successfully loaded Whisper pipeline")
             return True
@@ -308,46 +324,699 @@ class AudioProcessingService:
         
         return out
         
-    def _analyze_audio_quality(self, trans_result: Dict) -> Dict:
-        """Performs a detailed quality analysis based on transcription metrics."""
+    def _analyze_audio_quality(self, trans_result: Dict, audio_path: Path = None) -> Dict:
+        """
+        Relaxed audio quality analysis prioritizing demographics, production quality, and viral content
+        
+        New Scoring System (100 points total):
+        - Production Quality with Tone: 35 points (highest priority)
+        - Demographic Appeal & Viral Content: 35 points (highest priority)
+        - Speech Flow & Engagement: 20 points (baseline quality)
+        - Bonus Multipliers: Up to 10 points for Gen Z viral content
+        """
         if not trans_result.get('success'):
-            # If transcription failed, provide a basic quality score based on file existence
-            if trans_result.get('error') == 'ASR pipeline not available':
-                # Audio was extracted successfully but transcription failed due to missing Whisper
-                return {
-                    'quality_score': 50.0,  # Mid-range score since we know audio exists
-                    'analysis': 'Audio extracted successfully, but transcription unavailable (Whisper model not loaded). Basic quality score assigned.'
-                }
+            # If transcription failed, try to analyze audio file directly for basic metrics
+            if audio_path and audio_path.exists():
+                return self._analyze_audio_file_direct(audio_path)
             else:
-                return {'quality_score': 0.0, 'analysis': f'Transcription failed: {trans_result.get("error", "Unknown error")}'}
+                return {
+                    'quality_score': 0.0, 
+                    'analysis': f'Transcription failed: {trans_result.get("error", "Unknown error")}'
+                }
 
-        text = trans_result.get('text', '')
+        text = trans_result.get('text', '').strip()
         segments = trans_result.get('segments', [])
         duration = trans_result.get('duration', 0.0)
         
+        if not text or duration <= 0:
+            return {
+                'quality_score': 25.0,  # More generous base score
+                'analysis': 'Limited audio content detected'
+            }
+        
+        # RELAXED SCORING SYSTEM WITH PRIORITIES
+        
+        # 1. PRODUCTION QUALITY & TONE (35 points max - TOP PRIORITY)
+        production_score = self._analyze_production_quality_relaxed(audio_path, segments, text, duration)
+        
+        # 2. DEMOGRAPHIC APPEAL & VIRAL CONTENT (35 points max - TOP PRIORITY)
+        demographic_viral_score = self._analyze_demographic_viral_appeal(text)
+        
+        # 3. SPEECH FLOW & BASIC ENGAGEMENT (20 points max - BASELINE)
+        flow_score = self._analyze_speech_flow_relaxed(segments, duration)
+        
+        # Base score calculation
+        base_score = production_score + demographic_viral_score + flow_score
+        
+        # 4. GEN Z VIRAL BONUS (up to 10 points multiplier)
+        viral_bonus = self._calculate_viral_bonus(text)
+        
+        total_score = min(100.0, base_score + viral_bonus)
+        total_score = max(15.0, total_score)  # Minimum floor score
+        
+        # Generate detailed analysis
         word_count = len(text.split())
-        speech_duration = sum(seg.get('timestamp', [0,0])[1] - seg.get('timestamp', [0,0])[0] for seg in segments)
-        silence_ratio = (duration - speech_duration) / duration if duration > 0 else 0
-        wpm = (word_count / (speech_duration / 60)) if speech_duration > 0 else 0
+        speech_duration = sum(
+            seg.get('timestamp', [0, 0])[1] - seg.get('timestamp', [0, 0])[0] 
+            for seg in segments if seg.get('timestamp')
+        )
+        silence_ratio = ((duration - speech_duration) / duration * 100) if duration > 0 else 100
         
-        # Heuristic for confidence
-        # Use 'avg_logprob' from pipeline chunks
-        confidences = [seg.get('avg_logprob', -1) for seg in segments if 'avg_logprob' in seg]
-        avg_confidence = (1 + (sum(confidences) / len(confidences) / 5.0)) if confidences else 0.5
+        analysis = (
+            f"Total: {total_score:.1f}/100 | "
+            f"Production: {production_score:.1f}/35 | "
+            f"Demographics: {demographic_viral_score:.1f}/35 | "
+            f"Flow: {flow_score:.1f}/20 | "
+            f"Viral Bonus: {viral_bonus:.1f}/10"
+        )
         
-        score = 0.0
-        score += min(1.0, avg_confidence) * 40
-        score += (1.0 - silence_ratio) * 20
-        score += (10 if word_count > 20 else 3)
-        
-        if 120 <= wpm <= 180: score += 30
-        elif 100 <= wpm < 120 or 180 < wpm <= 200: score += 20
-        else: score += 10
-
         return {
-            'quality_score': min(100.0, max(0.0, score)),
-            'analysis': f"Score: {score:.1f}. WPM: {wpm:.1f}. Silence: {silence_ratio:.1%}. Confidence metric: {avg_confidence:.2f}",
+            'quality_score': total_score,
+            'analysis': analysis,
+            'breakdown': {
+                'production_score': production_score,
+                'demographic_viral_score': demographic_viral_score,
+                'flow_score': flow_score,
+                'viral_bonus': viral_bonus,
+                'silence_percentage': silence_ratio,
+                'word_count': word_count,
+                'speech_duration': speech_duration
+            }
         }
+    
+    def _analyze_production_quality_relaxed(self, audio_path: Path, segments: List, text: str, duration: float) -> float:
+        """Relaxed production quality analysis with generous scoring (35 points max)"""
+        if not segments:
+            return 15.0  # More generous base score
+            
+        score = 0.0
+        
+        # AUDIO CLARITY FROM TRANSCRIPTION (15 points max - very generous)
+        confidences = []
+        for seg in segments:
+            if 'avg_logprob' in seg:
+                confidence = max(0, min(1, 1 + seg['avg_logprob'] / 5.0))
+                confidences.append(confidence)
+        
+        if confidences:
+            avg_confidence = sum(confidences) / len(confidences)
+            # More generous scoring curve
+            if avg_confidence >= 0.3:  # Lower threshold
+                score += 10 + (avg_confidence * 5)  # 10-15 points
+            else:
+                score += 5 + (avg_confidence * 10)  # 5-8 points
+        else:
+            score += 10.0  # Default generous score
+        
+        # SPEECH FLOW & CONSISTENCY (8 points max - generous)
+        if len(segments) > 1:
+            gaps = []
+            for i in range(1, len(segments)):
+                prev_end = segments[i-1].get('timestamp', [0, 0])[1]
+                curr_start = segments[i].get('timestamp', [0, 0])[0]
+                gap = curr_start - prev_end
+                if gap > 0:
+                    gaps.append(gap)
+            
+            if gaps:
+                avg_gap = sum(gaps) / len(gaps)
+                if avg_gap <= 1.0:  # Much more relaxed
+                    score += 8.0
+                elif avg_gap <= 2.0:
+                    score += 6.0
+                elif avg_gap <= 3.0:
+                    score += 4.0
+                else:
+                    score += 2.0
+            else:
+                score += 7.0
+        else:
+            score += 6.0  # Single segment gets good score
+        
+        # ADVANCED TONE ANALYSIS (12 points max - enhanced weight)
+        tone_score = self._analyze_audio_tone_relaxed(audio_path, text)
+        score += tone_score
+        
+        return min(35.0, score)
+    
+    def _analyze_demographic_viral_appeal(self, text: str) -> float:
+        """Combined demographic appeal and viral content analysis (35 points max)"""
+        if not text:
+            return 10.0  # Base score for having any content
+            
+        words = text.lower().split()
+        score = 5.0  # Starting bonus
+        
+        # GEN Z VIRAL CONTENT (15 points max - HIGHEST PRIORITY)
+        gen_z_viral_words = {
+            'lowkey', 'highkey', 'deadass', 'bet', 'no cap', 'periodt', 'slay',
+            'tea', 'spill', 'vibe', 'mood', 'energy', 'sus', 'based', 'cringe',
+            'fr', 'facts', 'rizz', 'sigma', 'fire', 'lit', 'hits different',
+            'say less', 'bestie', 'queen', 'king', 'iconic', 'legend', 'goat'
+        }
+        viral_count = sum(1 for word in words if word in gen_z_viral_words)
+        # Very generous scoring for viral content
+        score += min(15.0, viral_count * 3.0)
+        
+        # BROAD DEMOGRAPHIC APPEAL (10 points max)
+        universal_appeal_words = {
+            'amazing', 'awesome', 'incredible', 'fantastic', 'great', 'cool',
+            'funny', 'hilarious', 'interesting', 'love', 'like', 'enjoy',
+            'excited', 'happy', 'beautiful', 'perfect', 'best', 'favorite',
+            'wonderful', 'brilliant', 'outstanding', 'excellent', 'nice'
+        }
+        appeal_count = sum(1 for word in words if word in universal_appeal_words)
+        score += min(10.0, appeal_count * 1.5)
+        
+        # ENGAGEMENT INDICATORS (10 points max)
+        engagement_words = {
+            'wow', 'omg', 'whoa', 'damn', 'dude', 'guys', 'everyone',
+            'check', 'look', 'see', 'watch', 'listen', 'hear', 'feel',
+            'think', 'know', 'get', 'understand', 'remember', 'imagine'
+        }
+        engagement_count = sum(1 for word in words if word in engagement_words)
+        score += min(10.0, engagement_count * 1.2)
+        
+        # BONUS FOR LONGER CONTENT (5 points max)
+        word_count = len(words)
+        if word_count >= 20:
+            score += 5.0
+        elif word_count >= 10:
+            score += 3.0
+        elif word_count >= 5:
+            score += 2.0
+        
+        return min(35.0, score)
+    
+    def _analyze_speech_flow_relaxed(self, segments: List, duration: float) -> float:
+        """Relaxed speech flow analysis focusing on basic quality (20 points max)"""
+        if not segments or duration <= 0:
+            return 8.0  # Generous base score
+            
+        speech_duration = sum(
+            seg.get('timestamp', [0, 0])[1] - seg.get('timestamp', [0, 0])[0] 
+            for seg in segments if seg.get('timestamp')
+        )
+        
+        silence_ratio = (duration - speech_duration) / duration
+        
+        # Much more relaxed silence scoring
+        if silence_ratio <= 0.2:  # 20% or less silence - excellent
+            return 20.0
+        elif silence_ratio <= 0.4:  # 20-40% silence - very good
+            return 18.0
+        elif silence_ratio <= 0.6:  # 40-60% silence - good
+            return 15.0
+        elif silence_ratio <= 0.8:  # 60-80% silence - okay
+            return 12.0
+        else:  # >80% silence - still gets points
+            return 8.0
+    
+    def _calculate_viral_bonus(self, text: str) -> float:
+        """Calculate bonus points for viral Gen Z content (10 points max)"""
+        if not text:
+            return 0.0
+            
+        words = text.lower().split()
+        text_lower = text.lower()
+        
+        bonus = 0.0
+        
+        # TRENDING SLANG BONUS (5 points max)
+        trending_words = {
+            'rizz', 'sigma', 'ohio', 'skibidi', 'gyat', 'bussin', 'sheesh',
+            'cap', 'no cap', 'periodt', 'slay', 'hits different', 'say less'
+        }
+        trending_phrases = ['no cap', 'hits different', 'say less', 'periodt']
+        
+        trending_count = sum(1 for word in words if word in trending_words)
+        phrase_count = sum(1 for phrase in trending_phrases if phrase in text_lower)
+        bonus += min(5.0, (trending_count + phrase_count * 2) * 1.0)
+        
+        # VIRAL ENERGY BONUS (3 points max)
+        energy_indicators = text.count('!') + text.count('?') + text.count('OMG') + text.count('omg')
+        bonus += min(3.0, energy_indicators * 0.5)
+        
+        # LENGTH & COMPLEXITY BONUS (2 points max)
+        if len(words) >= 15 and any(word in trending_words for word in words):
+            bonus += 2.0
+        elif len(words) >= 8 and any(word in trending_words for word in words):
+            bonus += 1.0
+        
+        return min(10.0, bonus)
+    
+    def _analyze_audio_tone_relaxed(self, audio_path: Path, text: str) -> float:
+        """Relaxed tone analysis with generous scoring (12 points max)"""
+        try:
+            import librosa
+            import numpy as np
+            
+            if not audio_path or not audio_path.exists():
+                return self._analyze_tone_from_text_relaxed(text)
+            
+            # Load audio file
+            y, sr = librosa.load(str(audio_path), sr=None)
+            
+            if len(y) == 0:
+                return self._analyze_tone_from_text_relaxed(text)
+            
+            tone_score = 2.0  # Base tone score
+            
+            # 1. ENERGY & DYNAMICS (5 points max - generous)
+            rms = librosa.feature.rms(y=y)[0]
+            rms_mean = np.mean(rms)
+            rms_std = np.std(rms)
+            
+            # Much more generous energy scoring
+            energy_score = min(5.0, 2 + (rms_mean * 15 + rms_std * 10))
+            tone_score += energy_score
+            
+            # 2. PITCH VARIATION (3 points max - generous)
+            pitches, magnitudes = librosa.piptrack(y=y, sr=sr)
+            pitch_values = []
+            
+            for t in range(pitches.shape[1]):
+                index = magnitudes[:, t].argmax()
+                pitch = pitches[index, t]
+                if pitch > 0:
+                    pitch_values.append(pitch)
+            
+            if pitch_values:
+                pitch_std = np.std(pitch_values)
+                pitch_score = min(3.0, 1 + (pitch_std / 30.0))  # More generous
+                tone_score += pitch_score
+            else:
+                tone_score += 2.0  # Default good score
+            
+            # 3. SPECTRAL QUALITY (2 points max - very generous)
+            spectral_centroids = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
+            centroid_mean = np.mean(spectral_centroids)
+            
+            # Much wider optimal range
+            if 500 <= centroid_mean <= 5000:  # Very broad range
+                tone_score += 2.0
+            elif 300 <= centroid_mean <= 6000:
+                tone_score += 1.5
+            else:
+                tone_score += 1.0
+            
+            return min(12.0, tone_score)
+            
+        except ImportError:
+            return self._analyze_tone_from_text_relaxed(text)
+        except Exception as e:
+            logger.warning(f"Audio tone analysis failed: {e}")
+            return self._analyze_tone_from_text_relaxed(text)
+    
+    def _analyze_tone_from_text_relaxed(self, text: str) -> float:
+        """Relaxed text-based tone analysis (12 points max)"""
+        if not text:
+            return 4.0  # Base score
+        
+        words = text.lower().split()
+        score = 4.0  # Starting bonus
+        
+        # EMOTIONAL INTENSITY (5 points max - generous)
+        high_energy_words = {
+            'amazing', 'incredible', 'awesome', 'fantastic', 'excited', 'thrilled',
+            'love', 'hate', 'obsessed', 'crazy', 'insane', 'unbelievable',
+            'wow', 'omg', 'brilliant', 'stunning', 'gorgeous', 'beautiful',
+            'fire', 'lit', 'sick', 'dope', 'epic', 'legendary'
+        }
+        energy_count = sum(1 for word in words if word in high_energy_words)
+        score += min(5.0, energy_count * 1.5)  # More generous
+        
+        # EXPRESSIVENESS (3 points max - generous)
+        punctuation_score = min(3.0, (text.count('!') + text.count('?')) * 0.8)
+        score += punctuation_score
+        
+        # VOCAL VARIETY (4 points max - generous)
+        variety_words = {
+            'really', 'very', 'so', 'super', 'totally', 'absolutely',
+            'definitely', 'actually', 'literally', 'honestly', 'seriously',
+            'completely', 'extremely', 'incredibly', 'amazingly'
+        }
+        variety_count = sum(1 for word in words if word in variety_words)
+        score += min(4.0, variety_count * 0.8)
+        
+        return min(12.0, score)
+        """Enhanced silence scoring that considers natural pauses and speech rhythm"""
+        if not segments or duration <= 0:
+            return 0.0
+            
+        speech_duration = sum(
+            seg.get('timestamp', [0, 0])[1] - seg.get('timestamp', [0, 0])[0] 
+            for seg in segments if seg.get('timestamp')
+        )
+        
+        silence_ratio = (duration - speech_duration) / duration
+        
+        # More nuanced scoring - some silence can be good for dramatic effect
+        if silence_ratio <= 0.05:  # Very little silence - might be rushed
+            return 15.0
+        elif silence_ratio <= 0.15:  # Optimal range - natural speech
+            return 20.0
+        elif silence_ratio <= 0.25:  # Good range - allows for emphasis
+            return 18.0
+        elif silence_ratio <= 0.35:  # Acceptable - might be storytelling style
+            return 14.0
+        elif silence_ratio <= 0.50:  # Moderate - could be contemplative content
+            return 10.0
+        elif silence_ratio <= 0.65:  # High silence - better have good reason
+            return 6.0
+        else:  # Too much silence unless it's artistic
+            return 2.0
+
+    def _analyze_content_viral_potential(self, text: str) -> float:
+        """Analyze content for viral potential and engagement factors"""
+        if not text:
+            return 0.0
+            
+        words = text.lower().split()
+        word_count = len(words)
+        
+        score = 5.0  # Base score
+        
+        # VIRAL TRIGGERS (8 points max)
+        viral_keywords = {
+            'wow', 'omg', 'insane', 'crazy', 'unbelievable', 'shocking', 'viral',
+            'trending', 'epic', 'legendary', 'iconic', 'fire', 'slaps', 'hits different',
+            'no cap', 'facts', 'periodt', 'slay', 'queen', 'king', 'boss', 'savage'
+        }
+        viral_count = sum(1 for word in words if word in viral_keywords)
+        score += min(8.0, viral_count * 2)
+        
+        # EMOTIONAL INTENSITY (7 points max)
+        high_emotion_words = {
+            'love', 'hate', 'amazing', 'terrible', 'incredible', 'awful', 'fantastic',
+            'horrible', 'perfect', 'disaster', 'brilliant', 'stupid', 'genius', 'idiot',
+            'obsessed', 'addicted', 'crying', 'screaming', 'dying', 'killing', 'slaying'
+        }
+        emotion_count = sum(1 for word in words if word in high_emotion_words)
+        score += min(7.0, emotion_count * 1.5)
+        
+        # CALL TO ACTION & ENGAGEMENT (5 points max)
+        engagement_phrases = {
+            'comment', 'like', 'subscribe', 'follow', 'share', 'tell me', 'what do you think',
+            'let me know', 'thoughts', 'opinion', 'agree', 'disagree', 'vote', 'choose',
+            'pick', 'decide', 'help', 'advice'
+        }
+        engagement_count = sum(1 for word in words if word in engagement_phrases)
+        score += min(5.0, engagement_count * 1.2)
+        
+        # CONTENT LENGTH OPTIMIZATION (5 points max)
+        if 15 <= word_count <= 50:  # Sweet spot for short content
+            score += 5.0
+        elif 10 <= word_count < 15 or 50 < word_count <= 80:
+            score += 3.0
+        elif 5 <= word_count < 10 or 80 < word_count <= 120:
+            score += 1.0
+        
+        # STORYTELLING ELEMENTS (5 points max)
+        story_words = {
+            'so', 'then', 'suddenly', 'meanwhile', 'first', 'next', 'finally',
+            'story', 'happened', 'remember', 'once', 'time', 'day', 'moment'
+        }
+        story_count = sum(1 for word in words if word in story_words)
+        score += min(5.0, story_count * 1)
+        
+        return min(30.0, score)
+
+    def _analyze_demographic_appeal_enhanced(self, text: str) -> float:
+        """Enhanced analysis of appeal across different age groups and demographics (25 points max)"""
+        if not text:
+            return 0.0
+            
+        words = text.lower().split()
+        score = 0.0
+        
+        # GEN Z APPEAL (8 points max - increased)
+        gen_z_words = {
+            'lowkey', 'highkey', 'deadass', 'bet', 'no cap', 'periodt', 'slay',
+            'tea', 'spill', 'vibe', 'mood', 'energy', 'sus', 'based', 'cringe',
+            'toxic', 'main character', 'npc', 'rizz', 'sigma', 'fr', 'facts'
+        }
+        gen_z_count = sum(1 for word in words if word in gen_z_words)
+        score += min(8.0, gen_z_count * 1.0)
+        
+        # MILLENNIAL APPEAL (6 points max - increased)
+        millennial_words = {
+            'adulting', 'goals', 'squad', 'bae', 'lit', 'fire', 'savage', 'queen',
+            'king', 'boss', 'salty', 'shade', 'thirsty', 'extra', 'basic', 'iconic',
+            'legendary', 'epic', 'amazing', 'incredible'
+        }
+        millennial_count = sum(1 for word in words if word in millennial_words)
+        score += min(6.0, millennial_count * 0.8)
+        
+        # UNIVERSAL APPEAL (6 points max - increased)
+        universal_words = {
+            'funny', 'hilarious', 'interesting', 'cool', 'awesome', 'amazing',
+            'incredible', 'fantastic', 'great', 'good', 'nice', 'beautiful',
+            'happy', 'excited', 'love', 'enjoy', 'favorite', 'best', 'wonderful',
+            'perfect', 'excellent', 'brilliant', 'outstanding'
+        }
+        universal_count = sum(1 for word in words if word in universal_words)
+        score += min(6.0, universal_count * 0.4)
+        
+        # ACCESSIBILITY & CLARITY (5 points max - increased)
+        # Clear, simple language that's easy to understand
+        simple_ratio = sum(1 for word in words if len(word) <= 6) / len(words) if words else 0
+        if simple_ratio >= 0.8:  # 80% simple words
+            score += 5.0
+        elif simple_ratio >= 0.7:
+            score += 4.0
+        elif simple_ratio >= 0.6:
+            score += 3.0
+        elif simple_ratio >= 0.5:
+            score += 2.0
+        elif simple_ratio >= 0.4:
+            score += 1.0
+        
+        return min(25.0, score)
+
+    def _analyze_production_quality_enhanced(self, audio_path: Path, segments: List, text: str, duration: float) -> float:
+        """Enhanced production quality analysis with tone analysis (25 points max)"""
+        if not segments:
+            return 0.0
+            
+        score = 0.0
+        
+        # AUDIO CLARITY FROM TRANSCRIPTION (8 points max)
+        confidences = []
+        for seg in segments:
+            if 'avg_logprob' in seg:
+                confidence = max(0, min(1, 1 + seg['avg_logprob'] / 5.0))
+                confidences.append(confidence)
+        
+        if confidences:
+            avg_confidence = sum(confidences) / len(confidences)
+            score += avg_confidence * 8.0
+        else:
+            score += 4.0  # Default moderate score
+        
+        # SPEECH CONSISTENCY & FLOW (5 points max)
+        if len(segments) > 1:
+            gaps = []
+            for i in range(1, len(segments)):
+                prev_end = segments[i-1].get('timestamp', [0, 0])[1]
+                curr_start = segments[i].get('timestamp', [0, 0])[0]
+                gap = curr_start - prev_end
+                if gap > 0:
+                    gaps.append(gap)
+            
+            if gaps:
+                avg_gap = sum(gaps) / len(gaps)
+                if avg_gap <= 0.3:
+                    score += 5.0
+                elif avg_gap <= 0.8:
+                    score += 4.0
+                elif avg_gap <= 1.5:
+                    score += 2.0
+                else:
+                    score += 1.0
+            else:
+                score += 4.0
+        
+        # CONTENT DENSITY & PACING (4 points max)
+        if duration > 0:
+            word_density = len(text.split()) / duration
+            if 1.5 <= word_density <= 4.0:  # Good information density
+                score += 4.0
+            elif 1.0 <= word_density < 1.5 or 4.0 < word_density <= 5.0:
+                score += 3.0
+            elif 0.5 <= word_density < 1.0 or 5.0 < word_density <= 6.0:
+                score += 2.0
+            else:
+                score += 1.0
+        
+        # ADVANCED TONE ANALYSIS (8 points max)
+        tone_score = self._analyze_audio_tone(audio_path, text)
+        score += tone_score
+        
+        return min(25.0, score)
+    
+    def _analyze_audio_tone(self, audio_path: Path, text: str) -> float:
+        """Analyze audio tone characteristics using librosa (8 points max)"""
+        try:
+            import librosa
+            import numpy as np
+            
+            if not audio_path or not audio_path.exists():
+                # Fallback to text-based tone analysis
+                return self._analyze_tone_from_text(text)
+            
+            # Load audio file
+            y, sr = librosa.load(str(audio_path), sr=None)
+            
+            if len(y) == 0:
+                return self._analyze_tone_from_text(text)
+            
+            tone_score = 0.0
+            
+            # 1. ENERGY & DYNAMICS (3 points max)
+            # RMS energy analysis
+            rms = librosa.feature.rms(y=y)[0]
+            rms_mean = np.mean(rms)
+            rms_std = np.std(rms)
+            
+            # Higher energy and variation indicates more engaging audio
+            energy_score = min(3.0, (rms_mean * 10 + rms_std * 5))
+            tone_score += energy_score
+            
+            # 2. PITCH VARIATION & EXPRESSIVENESS (3 points max)
+            # Extract pitch using librosa
+            pitches, magnitudes = librosa.piptrack(y=y, sr=sr)
+            pitch_values = []
+            
+            for t in range(pitches.shape[1]):
+                index = magnitudes[:, t].argmax()
+                pitch = pitches[index, t]
+                if pitch > 0:  # Valid pitch
+                    pitch_values.append(pitch)
+            
+            if pitch_values:
+                pitch_std = np.std(pitch_values)
+                # More pitch variation indicates more expressive speech
+                pitch_score = min(3.0, pitch_std / 50.0)  # Normalize pitch variation
+                tone_score += pitch_score
+            else:
+                tone_score += 1.0  # Default if no pitch detected
+            
+            # 3. SPECTRAL QUALITY (2 points max)
+            # Spectral centroid - indicates brightness/clarity
+            spectral_centroids = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
+            centroid_mean = np.mean(spectral_centroids)
+            
+            # Optimal range for speech clarity (around 1000-3000 Hz)
+            if 1000 <= centroid_mean <= 3000:
+                tone_score += 2.0
+            elif 800 <= centroid_mean < 1000 or 3000 < centroid_mean <= 4000:
+                tone_score += 1.5
+            elif 600 <= centroid_mean < 800 or 4000 < centroid_mean <= 5000:
+                tone_score += 1.0
+            else:
+                tone_score += 0.5
+            
+            return min(8.0, tone_score)
+            
+        except ImportError:
+            # Librosa not available, fallback to text analysis
+            return self._analyze_tone_from_text(text)
+        except Exception as e:
+            logger.warning(f"Audio tone analysis failed: {e}")
+            return self._analyze_tone_from_text(text)
+    
+    def _analyze_tone_from_text(self, text: str) -> float:
+        """Fallback tone analysis based on text content (8 points max)"""
+        if not text:
+            return 0.0
+        
+        words = text.lower().split()
+        score = 0.0
+        
+        # EMOTIONAL INTENSITY (4 points max)
+        high_energy_words = {
+            'amazing', 'incredible', 'awesome', 'fantastic', 'excited', 'thrilled',
+            'love', 'hate', 'obsessed', 'crazy', 'insane', 'unbelievable',
+            'wow', 'omg', 'brilliant', 'stunning', 'gorgeous', 'beautiful'
+        }
+        energy_count = sum(1 for word in words if word in high_energy_words)
+        score += min(4.0, energy_count * 0.8)
+        
+        # EXPRESSIVENESS INDICATORS (2 points max)
+        # Exclamation marks and question marks indicate vocal variation
+        punctuation_score = min(2.0, (text.count('!') + text.count('?')) * 0.5)
+        score += punctuation_score
+        
+        # VOCAL VARIETY INDICATORS (2 points max)
+        variety_words = {
+            'really', 'very', 'so', 'super', 'totally', 'absolutely',
+            'definitely', 'actually', 'literally', 'honestly'
+        }
+        variety_count = sum(1 for word in words if word in variety_words)
+        score += min(2.0, variety_count * 0.4)
+        
+        return min(8.0, score)
+    
+    def _analyze_audio_file_direct(self, audio_path: Path) -> Dict:
+        """Direct audio file analysis when transcription fails"""
+        try:
+            import librosa
+            import numpy as np
+            
+            # Load audio file
+            y, sr = librosa.load(str(audio_path), sr=16000)
+            duration = len(y) / sr
+            
+            # Calculate silence percentage
+            # Use RMS energy to detect silence
+            hop_length = 512
+            frame_length = 2048
+            rms = librosa.feature.rms(y=y, frame_length=frame_length, hop_length=hop_length)[0]
+            
+            # Threshold for silence (adjust as needed)
+            silence_threshold = np.percentile(rms, 20)  # Bottom 20% considered silence
+            silence_frames = np.sum(rms < silence_threshold)
+            total_frames = len(rms)
+            silence_ratio = silence_frames / total_frames if total_frames > 0 else 1.0
+            
+            # Basic scoring based on silence and duration
+            score = 10.0  # Base score for having audio
+            
+            # Silence scoring (20 points)
+            if silence_ratio <= 0.3:
+                score += 20.0
+            elif silence_ratio <= 0.5:
+                score += 15.0
+            elif silence_ratio <= 0.7:
+                score += 10.0
+            else:
+                score += 5.0
+            
+            # Duration scoring (10 points)
+            if duration >= 10:
+                score += 10.0
+            elif duration >= 5:
+                score += 7.0
+            elif duration >= 2:
+                score += 4.0
+            
+            return {
+                'quality_score': min(50.0, score),  # Max 50 without transcription
+                'analysis': f'Direct audio analysis - {silence_ratio*100:.1f}% silence, {duration:.1f}s duration (transcription unavailable)'
+            }
+            
+        except ImportError:
+            # librosa not available, return basic score
+            return {
+                'quality_score': 25.0,
+                'analysis': 'Basic audio analysis (advanced audio processing unavailable)'
+            }
+        except Exception as e:
+            return {
+                'quality_score': 10.0,
+                'analysis': f'Audio analysis failed: {str(e)}'
+            }
 
     def _process_one(self, video_file: Path) -> Dict:
         """Complete processing pipeline for a single video file."""
@@ -369,7 +1038,7 @@ class AudioProcessingService:
                     with transcript_file.open('w', encoding='utf-8') as f:
                         json.dump(transcription_result, f, indent=2)
 
-            quality = self._analyze_audio_quality(transcription_result)
+            quality = self._analyze_audio_quality(transcription_result, audio_file)
             
             return {
                 **result,

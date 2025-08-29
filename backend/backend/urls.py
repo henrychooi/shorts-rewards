@@ -12,7 +12,9 @@ from api.views import (
     get_audio_quality_report, list_videos, process_videos_traditional,
     # Comment Analysis endpoints (API only)
     analyze_comment, analyze_comments_for_short, batch_analyze_comments,
-    get_comment_sentiment_summary, analyze_text_sentiment
+    get_comment_sentiment_summary, analyze_text_sentiment,
+    # Video Analysis endpoints using Gemini API
+    analyze_single_video, get_video_analysis, batch_analyze_videos, video_analysis_report
 )
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -61,6 +63,12 @@ urlpatterns = [
     path('api/batch-analyze-comments/', batch_analyze_comments, name='batch_analyze_comments'),
     path('api/comment-sentiment-summary/<uuid:short_id>/', get_comment_sentiment_summary, name='comment_sentiment_summary'),
     path('api/analyze-text-sentiment/', analyze_text_sentiment, name='analyze_text_sentiment'),
+    
+    # Video Analysis endpoints using Gemini API
+    path('api/video/analyze/', analyze_single_video, name='analyze_single_video'),
+    path('api/video/<uuid:short_id>/analysis/', get_video_analysis, name='get_video_analysis'),
+    path('api/video/batch-analyze/', batch_analyze_videos, name='batch_analyze_videos'),
+    path('api/video/analysis-report/', video_analysis_report, name='video_analysis_report'),
 ]
 
 # Serve media files during development
