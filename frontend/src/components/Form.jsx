@@ -144,8 +144,16 @@ function Form({ route, method }) {
             />
           </div>
 
-          <button type="submit" className="form-button" disabled={loading}>
-            {loading ? <span className="loading-spinner"></span> : name}
+          <button 
+            type="submit" 
+            className={`form-button ${loading ? 'loading' : ''}`} 
+            disabled={loading}
+          >
+            {loading ? (
+              <span className="loading-spinner"></span>
+            ) : (
+              name
+            )}
           </button>
         </form>
 
