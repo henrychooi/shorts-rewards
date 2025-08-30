@@ -527,6 +527,10 @@ def toggle_like(request, short_id):
             related_short=short
         )
     
+    # Update the cached like count
+    short.like_count = short.like_count_calculated
+    short.save(update_fields=['like_count'])
+    
     return Response({
         'liked': liked,
         'like_count': short.like_count
@@ -541,6 +545,10 @@ def add_comment(request, short_id):
     
     if serializer.is_valid():
         comment = serializer.save(user=request.user, short=short)
+        
+        # Update the cached comment count
+        short.comment_count = short.comment_count_calculated
+        short.save(update_fields=['comment_count'])
         
         # Automatically analyze the new comment for sentiment in background
         def analyze_comment_background():

@@ -1,9 +1,9 @@
 """
 Django signals for automatic reward calculation and moderation flagging
 """
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
-from .models import Short, Comment
+from .models import Short, Comment, Like
 import logging
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,10 @@ def update_rewards_on_comment_change(sender, instance, created, **kwargs):
     """
     try:
         short = instance.short
+        
+        # Update cached comment count first
+        short.comment_count = short.comment_count_calculated
+        short.save(update_fields=['comment_count'])
         
         # Recalculate comment analysis score for the short
         from .comment_analysis_service import CommentAnalysisService
@@ -82,3 +86,45 @@ def on_analysis_completed(sender, short_id, analysis_type, **kwargs):
         logger.error(f"Short {short_id} not found for analysis completion signal")
     except Exception as e:
         logger.error(f"Error handling analysis completion: {e}")
+
+
+@receiver(post_save, sender=Like)
+def update_like_count_on_like_save(sender, instance, created, **kwargs):
+    """
+    Update cached like_count when a Like is created
+    """
+    try:
+        short = instance.short
+        short.like_count = short.like_count_calculated
+        short.save(update_fields=['like_count'])
+        logger.debug(f"Updated like_count for Short {short.id} after like save")
+    except Exception as e:
+        logger.error(f"Error updating like_count after like save: {e}")
+
+
+@receiver(post_delete, sender=Like)
+def update_like_count_on_like_delete(sender, instance, **kwargs):
+    """
+    Update cached like_count when a Like is deleted
+    """
+    try:
+        short = instance.short
+        short.like_count = short.like_count_calculated
+        short.save(update_fields=['like_count'])
+        logger.debug(f"Updated like_count for Short {short.id} after like delete")
+    except Exception as e:
+        logger.error(f"Error updating like_count after like delete: {e}")
+
+
+@receiver(post_delete, sender=Comment)
+def update_comment_count_on_comment_delete(sender, instance, **kwargs):
+    """
+    Update cached comment_count when a Comment is deleted
+    """
+    try:
+        short = instance.short
+        short.comment_count = short.comment_count_calculated
+        short.save(update_fields=['comment_count'])
+        logger.debug(f"Updated comment_count for Short {short.id} after comment delete")
+    except Exception as e:
+        logger.error(f"Error updating comment_count after comment delete: {e}")
