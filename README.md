@@ -1,4 +1,4 @@
-# 🎥 Live Streaming Rewards Platform
+# 🎥 Short-form Content Rewards Platform
 
 A comprehensive content creator rewards platform that combines short-form video sharing with AI-powered analysis and blockchain-inspired revenue sharing. Creators earn points based on engagement metrics, content quality, and AI analysis, with monthly revenue distribution through a secure wallet system.
 
