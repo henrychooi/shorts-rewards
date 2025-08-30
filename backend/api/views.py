@@ -5,6 +5,7 @@ from decimal import Decimal
 from datetime import datetime
 from django.utils import timezone
 from pathlib import Path
+from django.conf import settings
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
@@ -22,20 +23,13 @@ from .serializers import (
 )
 from .comment_analysis_service import CommentAnalysisService
 from .models import Note, Short, Like, Comment, View, Wallet, Transaction, AuditLog
-from .audio_service import AudioProcessingService
 from .gemini_video_service import gemini_video_service
+from .gemini_audio_service import gemini_audio_service
 import logging
 import os
 import time
 
 logger = logging.getLogger(__name__)
-
-# Initialize audio service at module level for performance
-try:
-    audio_service = AudioProcessingService()
-except Exception as e:
-    logger.warning(f"Failed to initialize AudioProcessingService: {e}")
-    audio_service = None
 
 
 class ShortsListView(generics.ListAPIView):
@@ -54,11 +48,23 @@ class ShortCreateView(generics.CreateAPIView):
     def perform_create(self, serializer):
         short = serializer.save(author=self.request.user)
         
-        # Process audio for transcript and quality score
-        self.process_video_audio(short)
-        
-        # Process video for comprehensive analysis using Gemini (run in background)
+        # Process both audio and video analysis asynchronously
+        self.process_video_audio_async(short)
         self.process_video_analysis_async(short)
+    
+    def process_video_audio_async(self, short):
+        """Start audio analysis in a background thread to avoid blocking the response"""
+        def analyze_audio_in_background():
+            try:
+                self.process_video_audio(short)
+            except Exception as e:
+                logger.error(f"Background audio analysis failed for {short.id}: {e}")
+        
+        # Start audio analysis in background thread
+        audio_thread = threading.Thread(target=analyze_audio_in_background)
+        audio_thread.daemon = True
+        audio_thread.start()
+        logger.info(f"Started background audio analysis for {short.id}")
     
     def process_video_analysis_async(self, short):
         """Start video analysis in a background thread to avoid blocking the response"""
@@ -75,27 +81,23 @@ class ShortCreateView(generics.CreateAPIView):
         logger.info(f"Started background video analysis for {short.id}")
     
     def process_video_audio(self, short):
-        """Process the uploaded video to generate transcript and quality score"""
+        """Process the uploaded video to generate transcript and quality score using Gemini"""
         try:
-            if not audio_service:
-                logger.warning(f"Audio service not available for video {short.id}")
+            if not gemini_audio_service.is_available():
+                logger.warning(f"Gemini audio service not available for video {short.id}")
                 return
             
             # Get the video file path
             video_path = short.video.path
             
-            # Process the single video using the correct method name
-            video_filename = Path(video_path).name
-            result = audio_service.process_single_video(video_filename)
+            # Process the video using Gemini for audio analysis
+            result = gemini_audio_service.analyze_video_audio(video_path)
             
             if result and 'error' not in result:
                 # Update the short with transcript and quality data
-                transcript_data = result.get('transcript', {})
-                quality_data = result.get('quality_analysis', {})
-                
-                short.transcript = transcript_data.get('text', '')
-                short.audio_quality_score = quality_data.get('quality_score', 0.0)
-                short.transcript_language = transcript_data.get('language', '')
+                short.transcript = result.get('transcript', '')
+                short.audio_quality_score = result.get('audio_quality_score', 0.0)
+                short.transcript_language = result.get('language', 'en')
                 short.audio_processed_at = timezone.now()
                 short.save(update_fields=['transcript', 'audio_quality_score', 'transcript_language', 'audio_processed_at'])
                 
@@ -197,23 +199,47 @@ class ShortDetailView(generics.RetrieveUpdateDestroyAPIView):
 @permission_classes([IsAuthenticated])  # Adjust permissions as needed
 def process_all_videos_audio(request):
     """
-    Process all MP4 videos in the media directory and analyze their audio quality
+    Process all MP4 videos in the media directory and analyze their audio quality using Gemini
     """
     try:
-        logger.info("Starting batch audio processing for all videos")
+        logger.info("Starting batch audio processing for all videos using Gemini")
         
-        if not audio_service:
+        if not gemini_audio_service.is_available():
             return Response(
-                {'error': 'Audio processing service not available'}, 
+                {'error': 'Gemini audio processing service not available'}, 
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
         
-        results = audio_service.process_all_videos()
+        # Find all video files in the media directory
+        media_videos_path = Path(settings.MEDIA_ROOT) / 'videos'
+        video_files = list(media_videos_path.glob("*.mp4"))
+        
+        results = []
+        for video_file in video_files:
+            try:
+                result = gemini_audio_service.analyze_video_audio(str(video_file))
+                if result and 'error' not in result:
+                    results.append({
+                        'filename': video_file.name,
+                        'transcript': result.get('transcript', ''),
+                        'audio_quality_score': result.get('audio_quality_score', 0.0),
+                        'language': result.get('language', 'en')
+                    })
+                else:
+                    results.append({
+                        'filename': video_file.name,
+                        'error': result.get('error', 'Unknown error')
+                    })
+            except Exception as e:
+                results.append({
+                    'filename': video_file.name,
+                    'error': str(e)
+                })
         
         # Calculate summary statistics
         total_videos = len(results)
         successful_processes = len([r for r in results if 'error' not in r])
-        average_quality = sum([r['quality_analysis']['quality_score'] for r in results]) / total_videos if total_videos > 0 else 0
+        average_quality = sum([r.get('audio_quality_score', 0) for r in results if 'error' not in r]) / successful_processes if successful_processes > 0 else 0
         
         response_data = {
             'success': True,
@@ -240,7 +266,7 @@ def process_all_videos_audio(request):
 @permission_classes([IsAuthenticated])
 def process_single_video_audio(request):
     """
-    Process a single video file's audio quality
+    Process a single video for audio quality analysis using Gemini
     Expected payload: {"video_filename": "example.mp4"}
     """
     try:
@@ -254,28 +280,42 @@ def process_single_video_audio(request):
         
         logger.info(f"Processing single video: {video_filename}")
         
-        if not audio_service:
+        if not gemini_audio_service.is_available():
             return Response({
                 'success': False,
-                'error': 'Audio processing service not available'
+                'error': 'Gemini audio processing service not available'
             }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         
-        result = audio_service.process_single_video(video_filename)
+        # Construct full path to video file
+        media_videos_path = Path(settings.MEDIA_ROOT) / 'videos'
+        video_path = media_videos_path / video_filename
+        
+        if not video_path.exists():
+            return Response({
+                'success': False,
+                'error': f'Video file {video_filename} not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        result = gemini_audio_service.analyze_video_audio(str(video_path))
         
         if 'error' in result:
             return Response({
                 'success': False,
-                'error': result['error'],
-                'quality_analysis': result['quality_analysis']
-            }, status=status.HTTP_404_NOT_FOUND if 'not found' in result['error'].lower() else status.HTTP_500_INTERNAL_SERVER_ERROR)
+                'error': result['error']
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         response_data = {
             'success': True,
             'message': f'Successfully processed {video_filename}',
-            'result': result
+            'result': {
+                'filename': video_filename,
+                'transcript': result.get('transcript', ''),
+                'audio_quality_score': result.get('audio_quality_score', 0.0),
+                'language': result.get('language', 'en')
+            }
         }
         
-        logger.info(f"Single video processing completed: {video_filename} - Quality: {result['quality_analysis']['quality_score']:.1f}")
+        logger.info(f"Single video processing completed: {video_filename} - Quality: {result.get('audio_quality_score', 0):.1f}")
         return Response(response_data, status=status.HTTP_200_OK)
         
     except Exception as e:
@@ -289,30 +329,47 @@ def process_single_video_audio(request):
 @permission_classes([IsAuthenticated])
 def get_audio_quality_report(request):
     """
-    Get a summary report of all processed audio files
+    Get a summary report of all processed audio files using Gemini
     """
     try:
-        # This could be enhanced to read from a database where you store results
-        # For now, it processes all videos to get current status
+        # This processes all videos to get current status using Gemini
         
-        if not audio_service:
+        if not gemini_audio_service.is_available():
             return Response(
-                {'error': 'Audio processing service not available'}, 
+                {'error': 'Gemini audio processing service not available'}, 
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
         
-        results = audio_service.process_all_videos()
+        # Find all video files and process them
+        media_videos_path = Path(settings.MEDIA_ROOT) / 'videos'
+        video_files = list(media_videos_path.glob("*.mp4"))
+        
+        results = []
+        for video_file in video_files:
+            try:
+                result = gemini_audio_service.analyze_video_audio(str(video_file))
+                if result and 'error' not in result:
+                    results.append({
+                        'filename': video_file.name,
+                        'audio_quality_score': result.get('audio_quality_score', 0.0)
+                    })
+            except Exception as e:
+                results.append({
+                    'filename': video_file.name,
+                    'error': str(e)
+                })
         
         # Generate report
+        valid_results = [r for r in results if 'error' not in r]
         report = {
             'total_videos': len(results),
             'quality_distribution': {
-                'excellent': len([r for r in results if r['quality_analysis']['quality_score'] >= 80]),
-                'good': len([r for r in results if 60 <= r['quality_analysis']['quality_score'] < 80]),
-                'fair': len([r for r in results if 40 <= r['quality_analysis']['quality_score'] < 60]),
-                'poor': len([r for r in results if r['quality_analysis']['quality_score'] < 40])
+                'excellent': len([r for r in valid_results if r['audio_quality_score'] >= 80]),
+                'good': len([r for r in valid_results if 60 <= r['audio_quality_score'] < 80]),
+                'fair': len([r for r in valid_results if 40 <= r['audio_quality_score'] < 60]),
+                'poor': len([r for r in valid_results if r['audio_quality_score'] < 40])
             },
-            'average_quality_score': sum([r['quality_analysis']['quality_score'] for r in results]) / len(results) if results else 0,
+            'average_quality_score': sum([r['audio_quality_score'] for r in valid_results]) / len(valid_results) if valid_results else 0,
             'processing_errors': len([r for r in results if 'error' in r]),
             'detailed_results': results
         }
@@ -335,13 +392,9 @@ def list_videos(request):
     List all available MP4 videos in the media directory
     """
     try:
-        if not audio_service:
-            return Response(
-                {'error': 'Audio processing service not available'}, 
-                status=status.HTTP_503_SERVICE_UNAVAILABLE
-            )
+        media_videos_path = Path(settings.MEDIA_ROOT) / 'videos'
+        videos = list(media_videos_path.glob("*.mp4"))
         
-        videos = list(audio_service.media_videos_path.glob("*.mp4"))
         video_list = [
             {
                 'filename': video.name,
@@ -370,23 +423,62 @@ def list_videos(request):
 @require_http_methods(["POST"])
 def process_videos_traditional(request):
     """
-    Traditional Django view for processing videos (without DRF)
+    Traditional Django view for processing videos using Gemini (without DRF)
     """
     try:
         if request.method == 'POST':
             data = json.loads(request.body)
             video_filename = data.get('video_filename')
             
+            if not gemini_audio_service.is_available():
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Gemini audio processing service not available'
+                }, status=503)
+            
             if video_filename:
                 # Process single video
-                result = audio_service.process_single_video(video_filename)
+                media_videos_path = Path(settings.MEDIA_ROOT) / 'videos'
+                video_path = media_videos_path / video_filename
+                
+                if not video_path.exists():
+                    return JsonResponse({
+                        'success': False,
+                        'error': f'Video file {video_filename} not found'
+                    }, status=404)
+                
+                result = gemini_audio_service.analyze_video_audio(str(video_path))
                 return JsonResponse({
                     'success': 'error' not in result,
                     'result': result
                 })
             else:
                 # Process all videos
-                results = audio_service.process_all_videos()
+                media_videos_path = Path(settings.MEDIA_ROOT) / 'videos'
+                video_files = list(media_videos_path.glob("*.mp4"))
+                
+                results = []
+                for video_file in video_files:
+                    try:
+                        result = gemini_audio_service.analyze_video_audio(str(video_file))
+                        if result and 'error' not in result:
+                            results.append({
+                                'filename': video_file.name,
+                                'transcript': result.get('transcript', ''),
+                                'audio_quality_score': result.get('audio_quality_score', 0.0),
+                                'language': result.get('language', 'en')
+                            })
+                        else:
+                            results.append({
+                                'filename': video_file.name,
+                                'error': result.get('error', 'Unknown error')
+                            })
+                    except Exception as e:
+                        results.append({
+                            'filename': video_file.name,
+                            'error': str(e)
+                        })
+                
                 return JsonResponse({
                     'success': True,
                     'results': results

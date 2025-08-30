@@ -147,7 +147,7 @@ LOGGING = {
         },
     },
     "loggers": {
-        "api.audio_service": {  # update with your app.module name
+        "api.gemini_audio_service": {  # update with your app.module name
             "handlers": ["file", "console"],
             "level": "INFO",
             "propagate": True,
