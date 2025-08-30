@@ -223,7 +223,7 @@
 
 .action-buttons {
   position: absolute;
-  right: 20px;
+  right: 80px; /* Moved further left to avoid overlap with navigation arrows */
   bottom: 180px;
   display: flex;
   flex-direction: column;
@@ -450,7 +450,7 @@
   }
 
   .action-buttons {
-    right: 16px;
+    right: 70px; /* Increased from 16px to avoid overlap with navigation arrows */
     bottom: 120px;
     gap: 12px;
   }
