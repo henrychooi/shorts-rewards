@@ -363,16 +363,17 @@ class Short(models.Model):
 
     def auto_calculate_rewards_if_ready(self):
         """
-        Automatically calculate rewards if required scores are available
-        Logic: Either (video AND audio) OR comment scores must be present
+        Automatically calculate rewards if basic engagement data is available
+        Logic: Can always calculate basic rewards from views/likes/comments, 
+               AI bonuses are added when analysis scores are available
         """
-        has_video_score = self.video_quality_score is not None
+        has_video_score = self.video_overall_score is not None
         has_audio_score = self.audio_quality_score is not None
         has_comment_score = self.comment_analysis_score is not None
         
-        # Check if we have either (video AND audio) OR comment analysis
-        has_video_audio = has_video_score and has_audio_score
-        can_calculate = has_video_audio or has_comment_score
+        # Can always calculate basic rewards from engagement metrics
+        # AI bonuses are added when available
+        can_calculate = True  # Always allow calculation with basic engagement data
         
         if can_calculate:
             # Calculate main reward
