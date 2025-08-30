@@ -18,6 +18,9 @@ class Short(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     view_count = models.PositiveIntegerField(default=0)
+    like_count = models.PositiveIntegerField(default=0, help_text="Cached count of likes")
+    comment_count = models.PositiveIntegerField(default=0, help_text="Cached count of comments")
+    average_watch_percentage = models.FloatField(default=0.0, help_text="Average watch percentage (0-100)")
     duration = models.FloatField(help_text="Duration in seconds", blank=True, null=True)
     is_active = models.BooleanField(default=True)
     
@@ -162,11 +165,13 @@ class Short(models.Model):
         return valid_shorts
 
     @property
-    def like_count(self):
+    def like_count_calculated(self):
+        """Calculate like count from database (for updating cache)"""
         return self.likes.count()
 
     @property
-    def comment_count(self):
+    def comment_count_calculated(self):
+        """Calculate comment count from database (for updating cache)"""
         return self.comments.count()
 
     # Enhanced analytics properties
@@ -248,16 +253,33 @@ class Short(models.Model):
             'duration': self.duration,
         }
 
+    def update_cached_counts(self):
+        """Update cached like_count, comment_count, and average_watch_percentage"""
+        self.like_count = self.like_count_calculated
+        self.comment_count = self.comment_count_calculated
+        
+        # Calculate average watch percentage from views
+        views = self.views.all()
+        if views:
+            total_watch_percentage = sum(view.watch_percentage for view in views if view.watch_percentage is not None)
+            valid_views = [view for view in views if view.watch_percentage is not None]
+            self.average_watch_percentage = total_watch_percentage / len(valid_views) if valid_views else 0.0
+        else:
+            self.average_watch_percentage = 0.0
+        
+        self.save(update_fields=['like_count', 'comment_count', 'average_watch_percentage'])
+
     def calculate_main_reward_score(self):
         """
-        Calculate main reward based on views, likes, and comments.
-        Formula: (views * 1) + (likes * 5) + (comments * 10)
+        Calculate main reward based on views, likes, comments, and watch percentage.
+        Formula: (views * 1) + (likes * 5) + (comments * 10) + (avg_watch_percentage * 0.5)
         """
         views_score = self.view_count * 1
         likes_score = self.like_count * 5
         comments_score = self.comment_count * 10
+        watch_percentage_score = self.average_watch_percentage * 0.5  # New component
         
-        main_score = views_score + likes_score + comments_score
+        main_score = views_score + likes_score + comments_score + watch_percentage_score
         self.main_reward_score = main_score
         return main_score
 
@@ -652,6 +674,7 @@ class Transaction(models.Model):
         ('content_creator_reward', 'Content Creator Reward'),
         ('ai_bonus', 'AI Quality Bonus'),
         ('moderation_adjustment', 'Moderation Adjustment'),
+        ('monthly_revenue_share', 'Monthly Revenue Share'),
         ('withdrawal', 'Withdrawal'),
         ('bonus', 'Bonus'),
     ]
@@ -822,3 +845,125 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"Audit: {self.action_type} - {self.user.username}"
+
+
+class MonthlyPayout(models.Model):
+    """Track monthly revenue share payouts to creators"""
+    
+    PAYOUT_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('processing', 'Processing'), 
+        ('completed', 'Completed'),
+        ('withdrawn', 'Withdrawn'),
+        ('failed', 'Failed'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='monthly_payouts')
+    payout_year = models.PositiveIntegerField()
+    payout_month = models.PositiveIntegerField()
+    
+    # Points and earnings breakdown
+    total_points = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    total_platform_points = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    platform_revenue = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    creator_share_percentage = models.DecimalField(max_digits=5, decimal_places=4, default=0.50)  # 50%
+    earned_amount = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    
+    # Payout tracking
+    status = models.CharField(max_length=20, choices=PAYOUT_STATUS_CHOICES, default='pending')
+    paid_at = models.DateTimeField(null=True, blank=True)
+    withdrawn_at = models.DateTimeField(null=True, blank=True)
+    
+    # Related transaction for audit trail
+    payout_transaction = models.ForeignKey(Transaction, on_delete=models.SET_NULL, null=True, blank=True, related_name='monthly_payout')
+    withdrawal_transaction = models.ForeignKey(Transaction, on_delete=models.SET_NULL, null=True, blank=True, related_name='withdrawn_payout')
+    
+    # Metadata
+    shorts_count = models.PositiveIntegerField(default=0)
+    calculation_details = models.JSONField(default=dict, blank=True, help_text="Detailed breakdown of points calculation")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-payout_year', '-payout_month', '-earned_amount']
+        unique_together = ['user', 'payout_year', 'payout_month']
+        indexes = [
+            models.Index(fields=['user', '-payout_year', '-payout_month']),
+            models.Index(fields=['status']),
+            models.Index(fields=['payout_year', 'payout_month']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.payout_year}/{self.payout_month:02d} - ${self.earned_amount}"
+    
+    @property
+    def payout_period(self):
+        """Human readable payout period"""
+        return f"{self.payout_year}-{self.payout_month:02d}"
+    
+    @property
+    def is_available_for_withdrawal(self):
+        """Check if payout is available for withdrawal"""
+        return self.status == 'completed' and self.earned_amount > 0
+
+
+class PlatformRevenue(models.Model):
+    """Track platform revenue for monthly payouts"""
+    
+    year = models.PositiveIntegerField()
+    month = models.PositiveIntegerField()
+    total_revenue = models.DecimalField(max_digits=12, decimal_places=2, help_text="Total platform revenue for the month")
+    revenue_sources = models.JSONField(default=dict, blank=True, help_text="Breakdown of revenue sources")
+    
+    # Revenue distribution
+    creator_share_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=50.00, help_text="Percentage going to creators")
+    creator_pool = models.DecimalField(max_digits=12, decimal_places=2, default=0, help_text="Amount allocated to creators")
+    platform_keeps = models.DecimalField(max_digits=12, decimal_places=2, default=0, help_text="Amount platform keeps")
+    
+    # Status tracking
+    is_finalized = models.BooleanField(default=False, help_text="Revenue finalized for payout processing")
+    payouts_processed = models.BooleanField(default=False, help_text="Payouts have been processed")
+    processed_at = models.DateTimeField(null=True, blank=True)
+    processed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='processed_revenues')
+    
+    # Metadata
+    notes = models.TextField(blank=True, help_text="Admin notes about this month's revenue")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-year', '-month']
+        unique_together = ['year', 'month']
+        indexes = [
+            models.Index(fields=['year', 'month']),
+            models.Index(fields=['is_finalized']),
+            models.Index(fields=['payouts_processed']),
+        ]
+    
+    def __str__(self):
+        return f"Platform Revenue {self.year}-{self.month:02d}: ${self.total_revenue}"
+    
+    def save(self, *args, **kwargs):
+        # Auto-calculate distribution amounts
+        if self.total_revenue:
+            self.creator_pool = self.total_revenue * (self.creator_share_percentage / 100)
+            self.platform_keeps = self.total_revenue - self.creator_pool
+        super().save(*args, **kwargs)
+    
+    @property
+    def period_display(self):
+        """Human readable period"""
+        return f"{self.year}-{self.month:02d}"
+    
+    def get_revenue_breakdown(self):
+        """Get detailed revenue breakdown"""
+        return {
+            'total_revenue': self.total_revenue,
+            'creator_share_percentage': self.creator_share_percentage,
+            'creator_pool': self.creator_pool,
+            'platform_keeps': self.platform_keeps,
+            'revenue_sources': self.revenue_sources
+        }

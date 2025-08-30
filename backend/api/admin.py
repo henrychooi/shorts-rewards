@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 @admin.register(Short)
 class ShortAdmin(admin.ModelAdmin):
     list_display = [
-        'title', 'author', 'duration', 'created_at', 'video_analysis_status',
+        'title', 'author', 'duration', 'created_at', 'get_engagement_stats_display',
         'get_comment_score_display', 'get_audio_quality_display', 'get_video_quality_display',
         'get_moderation_status_display', 'get_moderation_input_field',
         'get_main_reward_display', 'get_ai_bonus_display', 'get_moderation_display', 'get_final_reward_display'
@@ -26,7 +26,7 @@ class ShortAdmin(admin.ModelAdmin):
     list_filter = ('created_at', 'author', 'audio_quality_score', 'comment_analysis_score', 'video_analysis_status', 'video_quality_score', 'reward_calculated_at')
     search_fields = ('title', 'author__username', 'transcript', 'video_analysis_summary')
     readonly_fields = [
-        'id', 'created_at', 'updated_at', 'view_count',
+        'id', 'created_at', 'updated_at', 'get_engagement_stats_display',
         'get_comment_score_display', 'get_audio_quality_display', 'get_video_quality_display',
         'get_moderation_status_display', 'get_moderation_input_field',
         'get_main_reward_display', 'get_ai_bonus_display', 'get_moderation_display', 'get_final_reward_display'
@@ -35,8 +35,13 @@ class ShortAdmin(admin.ModelAdmin):
         ('Basic Info', {
             'fields': ('title', 'author', 'video', 'duration')
         }),
-        ('Engagement', {
-            'fields': ('view_count', 'like_count', 'comment_count', 'comment_analysis_score')
+        ('Engagement Stats', {
+            'fields': ('view_count', 'like_count', 'comment_count', 'average_watch_percentage', 'get_engagement_stats_display'),
+            'description': 'Cached engagement metrics for performance optimization.'
+        }),
+        ('Comment Analysis', {
+            'fields': ('comment_analysis_score',),
+            'description': 'AI-powered sentiment analysis of comments.'
         }),
         ('Reward System', {
             'fields': ('main_reward_score', 'ai_bonus_percentage', 'ai_bonus_reward', 'moderation_adjustment', 'final_reward_score', 'reward_calculated_at'),
@@ -60,7 +65,7 @@ class ShortAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
-    actions = ['analyze_comments_for_selected', 'analyze_videos_for_selected']
+    actions = ['analyze_comments_for_selected', 'analyze_videos_for_selected', 'update_cached_counts_for_selected']
 
     def get_urls(self):
         urls = super().get_urls()
@@ -253,6 +258,24 @@ class ShortAdmin(admin.ModelAdmin):
             return "Not analyzed"
         return f"{obj.video_quality_score:.1f}"
     get_video_quality_display.short_description = "Video Quality"
+
+    def get_engagement_stats_display(self, obj):
+        """Display engagement statistics in a compact format"""
+        watch_percentage = obj.average_watch_percentage if obj.average_watch_percentage is not None else 0.0
+        return format_html(
+            '<div style="font-size: 11px; line-height: 1.2;">'
+            '👁️ <strong>{}</strong> views<br/>'
+            '❤️ <strong>{}</strong> likes<br/>'
+            '💬 <strong>{}</strong> comments<br/>'
+            '⏱️ <strong>{}</strong>% avg watch'
+            '</div>',
+            obj.view_count,
+            obj.like_count,
+            obj.comment_count,
+            round(watch_percentage, 1)
+        )
+    get_engagement_stats_display.short_description = "Engagement"
+    get_engagement_stats_display.allow_tags = True
 
     def get_video_analysis_status_display(self, obj):
         status_icons = {
@@ -527,6 +550,42 @@ class ShortAdmin(admin.ModelAdmin):
             )
 
     analyze_videos_for_selected.short_description = "Analyze videos for selected shorts (Gemini AI)"
+
+    def update_cached_counts_for_selected(self, request, queryset):
+        """Admin action to update cached like_count, comment_count, and average_watch_percentage"""
+        try:
+            updated_count = 0
+            total_count = queryset.count()
+            
+            for short in queryset:
+                try:
+                    short.update_cached_counts()
+                    updated_count += 1
+                except Exception as e:
+                    logger.error(f"Error updating cached counts for short {short.id}: {e}")
+                    continue
+            
+            if updated_count == total_count:
+                self.message_user(
+                    request,
+                    f"Successfully updated cached counts for {updated_count} shorts.",
+                    messages.SUCCESS
+                )
+            else:
+                self.message_user(
+                    request,
+                    f"Updated {updated_count} out of {total_count} shorts. Check logs for errors.",
+                    messages.WARNING
+                )
+                
+        except Exception as e:
+            self.message_user(
+                request,
+                f"Error updating cached counts: {str(e)}",
+                messages.ERROR
+            )
+
+    update_cached_counts_for_selected.short_description = "Update cached engagement counts"
 
 @admin.register(Wallet)
 class WalletAdmin(admin.ModelAdmin):

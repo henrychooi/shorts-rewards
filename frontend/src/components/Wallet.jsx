@@ -9,6 +9,8 @@ const Wallet = ({ onClose }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showIntegrityDetails, setShowIntegrityDetails] = useState(false);
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [withdrawing, setWithdrawing] = useState(false);
 
   useEffect(() => {
     loadWalletData();
@@ -55,6 +57,39 @@ const Wallet = ({ onClose }) => {
       hour: "2-digit",
       minute: "2-digit",
     });
+  };
+
+  const handleWithdraw = () => {
+    if (!walletData?.balance || walletData.balance < 10) {
+      setError("Minimum withdrawal amount is $10.00");
+      return;
+    }
+    setShowWithdrawModal(true);
+  };
+
+  const confirmWithdrawal = async () => {
+    try {
+      setWithdrawing(true);
+      setShowWithdrawModal(false);
+      const response = await api.post("/api/wallet/withdraw/");
+      
+      if (response.data.success) {
+        setError(null);
+        // Reload wallet data to show updated balance
+        await loadWalletData();
+      } else {
+        setError(`Withdrawal failed: ${response.data.message || response.data.error}`);
+      }
+    } catch (error) {
+      console.error("Withdrawal error:", error);
+      setError(`Withdrawal failed: ${error.response?.data?.error || error.message}`);
+    } finally {
+      setWithdrawing(false);
+    }
+  };
+
+  const cancelWithdrawal = () => {
+    setShowWithdrawModal(false);
   };
 
   const getTransactionIcon = (type) => {
@@ -145,9 +180,10 @@ const Wallet = ({ onClose }) => {
               </div>
               <button
                 className="withdraw-btn"
-                disabled={!walletData?.balance || walletData.balance < 10}
+                disabled={!walletData?.balance || walletData.balance < 10 || withdrawing}
+                onClick={handleWithdraw}
               >
-                Withdraw Funds
+                {withdrawing ? "Processing..." : "Withdraw Funds"}
               </button>
               {walletData?.balance < 10 && (
                 <p className="min-withdrawal">Minimum withdrawal: $10.00</p>
@@ -224,6 +260,35 @@ const Wallet = ({ onClose }) => {
           </div>
         </div>
       </div>
+
+      {/* Withdrawal Confirmation Modal */}
+      {showWithdrawModal && (
+        <div className="modal-overlay" onClick={cancelWithdrawal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Confirm Withdrawal</h3>
+              <button className="modal-close" onClick={cancelWithdrawal}>
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>
+                Are you sure you want to withdraw{" "}
+                <strong>{formatCurrency(walletData?.balance || 0)}</strong>?
+              </p>
+              <p>This will set your wallet balance to $0.00.</p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-cancel" onClick={cancelWithdrawal}>
+                Cancel
+              </button>
+              <button className="btn-confirm" onClick={confirmWithdrawal}>
+                Confirm Withdrawal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -15,10 +15,9 @@ from api.views import (
     get_comment_sentiment_summary, analyze_text_sentiment,
     # Video Analysis endpoints using Gemini API
     analyze_single_video, get_video_analysis, batch_analyze_videos, video_analysis_report,
-    # Reward System endpoints
-    calculate_short_rewards, process_short_payout, creator_reward_summary,
-    admin_batch_calculate_rewards, admin_batch_process_payouts, admin_reward_dashboard,
-    reward_history, reward_analytics
+    # Monthly Revenue Sharing endpoints
+    monthly_creator_points, calculate_monthly_revenue_share, process_monthly_payouts, my_monthly_earnings, calculate_points_for_shorts,
+    withdraw_wallet_balance, my_payout_history
 )
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -74,17 +73,14 @@ urlpatterns = [
     path('api/video/batch-analyze/', batch_analyze_videos, name='batch_analyze_videos'),
     path('api/video/analysis-report/', video_analysis_report, name='video_analysis_report'),
     
-    # Reward System endpoints
-    path('api/rewards/<uuid:short_id>/calculate/', calculate_short_rewards, name='calculate_short_rewards'),
-    path('api/rewards/<uuid:short_id>/payout/', process_short_payout, name='process_short_payout'),
-    path('api/rewards/creator-summary/', creator_reward_summary, name='creator_reward_summary'),
-    path('api/rewards/history/', reward_history, name='reward_history'),
-    path('api/rewards/analytics/', reward_analytics, name='reward_analytics'),
-    
-    # Admin Reward System endpoints
-    path('api/admin/rewards/batch-calculate/', admin_batch_calculate_rewards, name='admin_batch_calculate_rewards'),
-    path('api/admin/rewards/batch-payout/', admin_batch_process_payouts, name='admin_batch_process_payouts'),
-    path('api/admin/rewards/dashboard/', admin_reward_dashboard, name='admin_reward_dashboard'),
+    # Monthly Revenue Sharing endpoints
+    path('api/admin/revenue-share/creator-points/', monthly_creator_points, name='monthly_creator_points'),
+    path('api/admin/revenue-share/calculate/', calculate_monthly_revenue_share, name='calculate_monthly_revenue_share'),
+    path('api/admin/revenue-share/process-payouts/', process_monthly_payouts, name='process_monthly_payouts'),
+    path('api/admin/revenue-share/calculate-points/', calculate_points_for_shorts, name='calculate_points_for_shorts'),
+    path('api/revenue-share/my-earnings/', my_monthly_earnings, name='my_monthly_earnings'),
+    path('api/wallet/withdraw/', withdraw_wallet_balance, name='withdraw_wallet_balance'),
+    path('api/wallet/payout-history/', my_payout_history, name='my_payout_history'),
 ]
 
 # Serve media files during development

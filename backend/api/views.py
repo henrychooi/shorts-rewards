@@ -22,7 +22,7 @@ from .serializers import (
     TransactionSerializer, AuditLogSerializer
 )
 from .comment_analysis_service import CommentAnalysisService
-from .reward_service import reward_service
+from .reward_service import monthly_revenue_service
 from .models import Note, Short, Like, Comment, View, Wallet, Transaction, AuditLog
 from .gemini_video_service import gemini_video_service
 from .gemini_audio_service import gemini_audio_service
@@ -2401,4 +2401,278 @@ def reward_analytics(request):
         return Response({
             'success': False,
             'error': f'Failed to get reward analytics: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# Monthly Revenue Sharing API Endpoints
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def monthly_creator_points(request):
+    """
+    Get creator points for a specific month.
+    Query params: year, month
+    """
+    try:
+        year = int(request.GET.get('year', timezone.now().year))
+        month = int(request.GET.get('month', timezone.now().month))
+        
+        creator_points = monthly_revenue_service.get_monthly_creator_points(year, month)
+        
+        return Response({
+            'success': True,
+            'year': year,
+            'month': month,
+            'creators_count': len(creator_points),
+            'total_points': sum(data['total_points'] for data in creator_points.values()),
+            'creator_points': {
+                str(creator_id): data for creator_id, data in creator_points.items()
+            }
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def calculate_monthly_revenue_share(request):
+    """
+    Calculate monthly revenue share distribution.
+    Body: {"year": 2024, "month": 12, "platform_revenue": "10000.00"}
+    """
+    try:
+        year = request.data.get('year', timezone.now().year)
+        month = request.data.get('month', timezone.now().month)
+        platform_revenue = Decimal(str(request.data.get('platform_revenue', 0)))
+        
+        if platform_revenue <= 0:
+            return Response({
+                'success': False,
+                'error': 'Platform revenue must be greater than 0'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        calculation = monthly_revenue_service.calculate_monthly_revenue_share(
+            year, month, platform_revenue
+        )
+        
+        return Response(calculation)
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def process_monthly_payouts(request):
+    """
+    Process monthly revenue share payouts to creators.
+    Body: {"year": 2024, "month": 12, "platform_revenue": "10000.00", "dry_run": false}
+    """
+    try:
+        year = request.data.get('year', timezone.now().year)
+        month = request.data.get('month', timezone.now().month)
+        platform_revenue = Decimal(str(request.data.get('platform_revenue', 0)))
+        dry_run = request.data.get('dry_run', True)  # Default to dry run for safety
+        
+        if platform_revenue <= 0:
+            return Response({
+                'success': False,
+                'error': 'Platform revenue must be greater than 0'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        result = monthly_revenue_service.process_monthly_payouts(
+            year, month, platform_revenue, dry_run
+        )
+        
+        return Response(result)
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def my_monthly_earnings(request):
+    """
+    Get current user's monthly points and estimated earnings.
+    Query params: year, month
+    """
+    try:
+        year = int(request.GET.get('year', timezone.now().year))
+        month = int(request.GET.get('month', timezone.now().month))
+        
+        # Get all creator points for the month
+        all_creator_points = monthly_revenue_service.get_monthly_creator_points(year, month)
+        
+        # Find current user's data
+        user_data = all_creator_points.get(request.user.id, {
+            'user': request.user,
+            'username': request.user.username,
+            'total_points': 0,
+            'shorts_count': 0,
+            'shorts': []
+        })
+        
+        # Calculate user's percentage of total points
+        total_points = sum(data['total_points'] for data in all_creator_points.values())
+        user_percentage = (user_data['total_points'] / total_points * 100) if total_points > 0 else 0
+        
+        return Response({
+            'success': True,
+            'year': year,
+            'month': month,
+            'user_points': user_data['total_points'],
+            'shorts_count': user_data['shorts_count'],
+            'total_points_all_creators': total_points,
+            'user_percentage': round(user_percentage, 4),
+            'shorts': user_data['shorts'],
+            'estimated_earnings_formula': f"({user_data['total_points']} / {total_points}) × 50% × Platform Revenue"
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def calculate_points_for_shorts(request):
+    """
+    Calculate points for shorts that don't have calculated scores yet.
+    Uses the point calculation from Short model: (views * 1) + (likes * 5) + (comments * 10) + AI bonuses
+    Body: {"year": 2024, "month": 12} (optional - if not provided, calculates for all)
+    """
+    try:
+        year = request.data.get('year')
+        month = request.data.get('month')
+        
+        result = monthly_revenue_service.calculate_points_for_uncalculated_shorts(year, month)
+        
+        return Response(result)
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def withdraw_wallet_balance(request):
+    """
+    Withdraw entire wallet balance for the current user.
+    Sets wallet balance to 0 and creates withdrawal transaction.
+    """
+    try:
+        result = monthly_revenue_service.withdraw_wallet_balance(request.user.id)
+        
+        if result['success']:
+            return Response(result)
+        else:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def my_payout_history(request):
+    """
+    Get current user's monthly payout history.
+    Query params: limit (default 12)
+    """
+    try:
+        limit = int(request.GET.get('limit', 12))
+        
+        result = monthly_revenue_service.get_user_monthly_payouts(request.user.id, limit)
+        
+        return Response(result)
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# TEST ENDPOINTS FOR MONTHLY REVENUE SHARING
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def test_monthly_revenue_share(request):
+    """
+    TEST ENDPOINT: Test monthly revenue sharing system.
+    Body: {
+        "platform_revenue": 10000,
+        "year": 2025, 
+        "month": 8,
+        "dry_run": true
+    }
+    """
+    try:
+        platform_revenue = Decimal(str(request.data.get('platform_revenue', 10000)))
+        year = request.data.get('year')
+        month = request.data.get('month')
+        dry_run = request.data.get('dry_run', True)
+        
+        result = monthly_revenue_service.test_monthly_revenue_share(
+            platform_revenue=platform_revenue,
+            target_year=year,
+            target_month=month,
+            dry_run=dry_run
+        )
+        
+        return Response(result)
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def create_test_shorts(request):
+    """
+    TEST ENDPOINT: Create test shorts for a specific month to test revenue sharing.
+    Body: {
+        "year": 2025,
+        "month": 7,
+        "num_shorts": 5
+    }
+    """
+    try:
+        year = request.data.get('year', 2025)
+        month = request.data.get('month', 7)
+        num_shorts = request.data.get('num_shorts', 5)
+        
+        result = monthly_revenue_service.create_test_shorts_for_month(
+            target_year=year,
+            target_month=month,
+            num_shorts=num_shorts
+        )
+        
+        return Response(result)
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
