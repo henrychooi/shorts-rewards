@@ -517,15 +517,6 @@ def toggle_like(request, short_id):
         liked = False
     else:
         liked = True
-        # Award like reward to the short's author (only when liked, not unliked)
-        like_reward = 0.01  # $0.01 per like
-        create_reward_transaction(
-            user=short.author,
-            transaction_type='like_reward',
-            amount=like_reward,
-            description=f"Like reward for '{short.title or 'Untitled'}'"[:255],
-            related_short=short
-        )
     
     # Update the cached like count
     short.like_count = short.like_count_calculated
@@ -602,16 +593,6 @@ def track_view(request, short_id):
         
         # Get the updated count to return
         short.refresh_from_db()
-        
-        # Award view reward to the short's author (small amount per view)
-        view_reward = 0.001  # $0.001 per view
-        create_reward_transaction(
-            user=short.author,
-            transaction_type='view_reward',
-            amount=view_reward,
-            description=f"View reward for '{short.title or 'Untitled'}'"[:255],
-            related_short=short
-        )
         
         print(f"DEBUG: View incremented for short {short_id}. New view count: {short.view_count}")
         
