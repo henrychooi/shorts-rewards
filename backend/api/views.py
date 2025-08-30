@@ -2,6 +2,7 @@ from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.models import User
 from django.db.models import F
 from decimal import Decimal
+from .signals import analysis_completed
 from datetime import datetime
 from django.utils import timezone
 from pathlib import Path
@@ -103,8 +104,11 @@ class ShortCreateView(generics.CreateAPIView):
                 short.save(update_fields=['transcript', 'audio_quality_score', 'transcript_language', 'audio_processed_at'])
                 
                 # Trigger signal for automatic reward calculation
-                from .signals import analysis_completed
+                
                 analysis_completed.send(sender=Short, short_id=short.id, analysis_type='audio')
+                
+                # Trigger auto reward calculation after audio analysis completion
+                short.auto_calculate_rewards_if_ready()
                 
                 if result.get('success', True):
                     logger.info(f"Successfully processed audio for video {short.id}: quality_score={short.audio_quality_score}")
@@ -176,6 +180,9 @@ class ShortCreateView(generics.CreateAPIView):
                     'video_detailed_breakdown', 'video_demographic_analysis',
                     'video_quality_score', 'video_engagement_prediction', 'video_sentiment_score', 'video_content_categories'
                 ])
+                
+                # Trigger auto reward calculation after video analysis completion
+                short.auto_calculate_rewards_if_ready()
                 
                 logger.info(f"Successfully analyzed video {short.id}: overall={short.video_overall_score:.1f}, engagement={short.video_content_engagement}, demographics={short.video_demographic_appeal}, originality={short.video_originality}")
             else:
