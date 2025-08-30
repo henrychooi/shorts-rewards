@@ -184,14 +184,33 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.WARNING('No points to distribute - no payouts will be created'))
                     return
 
-                # Delete existing payouts if force is used
+                # Delete existing payouts and transactions if force is used
                 if force and existing_payouts > 0:
                     if not dry_run:
-                        MonthlyPayout.objects.filter(
+                        payouts_to_delete = MonthlyPayout.objects.filter(
                             payout_year=year,
                             payout_month=month
-                        ).delete()
-                    self.stdout.write(f'Deleted {existing_payouts} existing payouts')
+                        )
+                        
+                        # Get transaction IDs before deleting payouts
+                        transaction_ids = list(payouts_to_delete.values_list(
+                            'payout_transaction_id', flat=True
+                        ))
+                        transaction_ids = [tid for tid in transaction_ids if tid is not None]
+
+                        # Delete the payouts
+                        deleted_payout_count, _ = payouts_to_delete.delete()
+                        self.stdout.write(f'Deleted {deleted_payout_count} existing payouts')
+
+                        # Delete the associated transactions
+                        if transaction_ids:
+                            transactions_deleted, _ = Transaction.objects.filter(
+                                id__in=transaction_ids
+                            ).delete()
+                            self.stdout.write(f'Deleted {transactions_deleted} associated transactions')
+                    else:
+                        self.stdout.write(f'Would delete {existing_payouts} existing payouts and their associated transactions')
+
 
                 # Create monthly payouts
                 payouts_created = 0

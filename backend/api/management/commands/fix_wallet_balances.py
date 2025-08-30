@@ -28,8 +28,13 @@ class Command(BaseCommand):
             confirmed_transactions = wallet.transactions.filter(is_confirmed=True)
             correct_balance = sum(t.amount for t in confirmed_transactions)
             
-            # Calculate correct total earnings (only positive amounts)
-            correct_total_earnings = sum(t.amount for t in confirmed_transactions if t.amount > 0)
+            # Calculate correct total earnings - sum of all positive earnings minus withdrawn amounts
+            # Only count positive earnings (rewards, bonuses, payouts)
+            positive_earnings = sum(t.amount for t in confirmed_transactions if t.amount > 0)
+            # Sum of all withdrawals (negative amounts)
+            withdrawals = sum(abs(t.amount) for t in confirmed_transactions if t.amount < 0 and t.transaction_type == 'withdrawal')
+            # Total earnings should be cumulative positive earnings minus what was withdrawn
+            correct_total_earnings = positive_earnings
             
             # Check if update is needed
             needs_update = (
