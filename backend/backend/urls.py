@@ -14,7 +14,11 @@ from api.views import (
     analyze_comment, analyze_comments_for_short, batch_analyze_comments,
     get_comment_sentiment_summary, analyze_text_sentiment,
     # Video Analysis endpoints using Gemini API
-    analyze_single_video, get_video_analysis, batch_analyze_videos, video_analysis_report
+    analyze_single_video, get_video_analysis, batch_analyze_videos, video_analysis_report,
+    # Reward System endpoints
+    calculate_short_rewards, process_short_payout, creator_reward_summary,
+    admin_batch_calculate_rewards, admin_batch_process_payouts, admin_reward_dashboard,
+    reward_history, reward_analytics
 )
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -57,8 +61,8 @@ urlpatterns = [
     path('api/videos/list/', list_videos, name='list_videos'),
 
     # Comment Analysis endpoints
-    path('api/admin/analyze-comment/<uuid:comment_id>/', analyze_comment, name='analyze_comment'),
-    path('api/admin/reanalyze-comment/<uuid:comment_id>/', analyze_comment, {'force': True}, name='reanalyze_comment'),
+    path('api/admin/analyze-comment/<int:comment_id>/', analyze_comment, name='analyze_comment'),
+    path('api/admin/reanalyze-comment/<int:comment_id>/', analyze_comment, {'force': True}, name='reanalyze_comment'),
     path('api/admin/analyze-comments/<uuid:short_id>/', analyze_comments_for_short, name='analyze_comments_for_short'),
     path('api/batch-analyze-comments/', batch_analyze_comments, name='batch_analyze_comments'),
     path('api/comment-sentiment-summary/<uuid:short_id>/', get_comment_sentiment_summary, name='comment_sentiment_summary'),
@@ -69,6 +73,18 @@ urlpatterns = [
     path('api/video/<uuid:short_id>/analysis/', get_video_analysis, name='get_video_analysis'),
     path('api/video/batch-analyze/', batch_analyze_videos, name='batch_analyze_videos'),
     path('api/video/analysis-report/', video_analysis_report, name='video_analysis_report'),
+    
+    # Reward System endpoints
+    path('api/rewards/<uuid:short_id>/calculate/', calculate_short_rewards, name='calculate_short_rewards'),
+    path('api/rewards/<uuid:short_id>/payout/', process_short_payout, name='process_short_payout'),
+    path('api/rewards/creator-summary/', creator_reward_summary, name='creator_reward_summary'),
+    path('api/rewards/history/', reward_history, name='reward_history'),
+    path('api/rewards/analytics/', reward_analytics, name='reward_analytics'),
+    
+    # Admin Reward System endpoints
+    path('api/admin/rewards/batch-calculate/', admin_batch_calculate_rewards, name='admin_batch_calculate_rewards'),
+    path('api/admin/rewards/batch-payout/', admin_batch_process_payouts, name='admin_batch_process_payouts'),
+    path('api/admin/rewards/dashboard/', admin_reward_dashboard, name='admin_reward_dashboard'),
 ]
 
 # Serve media files during development

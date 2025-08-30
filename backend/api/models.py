@@ -63,6 +63,32 @@ class Short(models.Model):
     video_detailed_breakdown = models.JSONField(default=dict, blank=True, help_text="Detailed score breakdown")
     video_demographic_analysis = models.JSONField(default=dict, blank=True, help_text="Demographic-specific analysis data")
     
+    # Reward System Fields
+    main_reward_score = models.FloatField(blank=True, null=True, help_text="Base reward from views, likes, comments")
+    ai_bonus_percentage = models.FloatField(blank=True, null=True, help_text="AI bonus percentage from video/audio quality")
+    ai_bonus_reward = models.FloatField(blank=True, null=True, help_text="AI bonus reward amount in points")
+    moderation_adjustment = models.FloatField(blank=True, null=True, help_text="Moderation adjustment percentage (-20% to +20%)")
+    final_reward_score = models.FloatField(blank=True, null=True, help_text="Final calculated reward score")
+    reward_calculated_at = models.DateTimeField(blank=True, null=True, help_text="When reward was last calculated")
+    
+    # Moderation System Fields
+    is_flagged_for_moderation = models.BooleanField(default=False, help_text="Automatically flagged when comment score < -0.50")
+    moderation_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('none', 'No Moderation Needed'),
+            ('flagged', 'Flagged for Review'),
+            ('under_review', 'Under Review'),
+            ('moderated', 'Moderated'),
+            ('cleared', 'Cleared')
+        ],
+        default='none',
+        help_text="Current moderation status"
+    )
+    moderated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="moderated_shorts", help_text="Admin who performed moderation")
+    moderated_at = models.DateTimeField(blank=True, null=True, help_text="When moderation was performed")
+    moderation_reason = models.TextField(blank=True, null=True, help_text="Reason for moderation action")
+    
     class Meta:
         ordering = ['-created_at']
         indexes = [
@@ -220,6 +246,219 @@ class Short(models.Model):
             'unique_rewatchers': self.unique_rewatchers,
             'average_engagement_score': round(self.average_engagement_score, 2),
             'duration': self.duration,
+        }
+
+    def calculate_main_reward_score(self):
+        """
+        Calculate main reward based on views, likes, and comments.
+        Formula: (views * 1) + (likes * 5) + (comments * 10)
+        """
+        views_score = self.view_count * 1
+        likes_score = self.like_count * 5
+        comments_score = self.comment_count * 10
+        
+        main_score = views_score + likes_score + comments_score
+        self.main_reward_score = main_score
+        return main_score
+
+    def calculate_ai_bonus_percentage(self):
+        """
+        Calculate AI bonus percentage from video quality, audio quality, and comment sentiment.
+        This uses a smooth, continuous formula rather than rigid tiers.
+        
+        Components:
+        1. Video Quality (0-100) -> contributes up to 30% bonus
+        2. Audio Quality (0-100) -> contributes up to 15% bonus  
+        3. Comment Sentiment (-1 to +1) -> contributes up to 5% bonus
+        
+        Formula uses smooth curves to avoid rigid boundaries:
+        - Video: 30% * (score/100)^1.5 (emphasis on high quality)
+        - Audio: 15% * (score/100)^1.2 (slightly less emphasis)
+        - Sentiment: 5% * normalized_sentiment_score
+        
+        Maximum total bonus: 50%
+        """
+        video_bonus = 0
+        audio_bonus = 0
+        sentiment_bonus = 0
+        
+        # Video quality bonus (0-30%)
+        if self.video_overall_score:
+            # Use power curve to emphasize high quality scores
+            normalized_video = max(0, min(100, self.video_overall_score)) / 100
+            video_bonus = 30 * (normalized_video ** 1.5)
+        
+        # Audio quality bonus (0-15%)
+        if self.audio_quality_score:
+            normalized_audio = max(0, min(100, self.audio_quality_score)) / 100
+            audio_bonus = 15 * (normalized_audio ** 1.2)
+        
+        # Comment sentiment bonus (0-5%)
+        # Calculate average sentiment from comments
+        comments = self.comments.filter(is_active=True, sentiment_score__isnull=False)
+        if comments.exists():
+            avg_sentiment = sum(c.sentiment_score for c in comments) / len(comments)
+            # Normalize sentiment from [-1, 1] to [0, 1] and apply bonus
+            normalized_sentiment = (avg_sentiment + 1) / 2  # Convert [-1,1] to [0,1]
+            sentiment_bonus = 5 * normalized_sentiment
+        
+        total_bonus = video_bonus + audio_bonus + sentiment_bonus
+        # Cap at 50% maximum
+        total_bonus = min(50, total_bonus)
+        
+        self.ai_bonus_percentage = round(total_bonus, 2)
+        
+        # Calculate actual bonus amount
+        if self.main_reward_score:
+            self.ai_bonus_reward = round(self.main_reward_score * (total_bonus / 100), 2)
+        else:
+            self.ai_bonus_reward = 0
+            
+        return total_bonus
+
+    def check_and_update_moderation_flag(self):
+        """
+        Check if short should be flagged for moderation based on comment sentiment
+        Automatically flags when comment score < -0.50
+        """
+        if self.comment_analysis_score is not None:
+            should_be_flagged = self.comment_analysis_score < -0.50
+            
+            if should_be_flagged and not self.is_flagged_for_moderation:
+                # Flag for moderation
+                self.is_flagged_for_moderation = True
+                self.moderation_status = 'flagged'
+                self.save(update_fields=['is_flagged_for_moderation', 'moderation_status'])
+                
+            elif not should_be_flagged and self.is_flagged_for_moderation and self.moderation_status == 'flagged':
+                # Unflag if comment score improved and hasn't been manually moderated
+                self.is_flagged_for_moderation = False
+                self.moderation_status = 'cleared'
+                self.save(update_fields=['is_flagged_for_moderation', 'moderation_status'])
+                
+        return self.is_flagged_for_moderation
+
+    def auto_calculate_rewards_if_ready(self):
+        """
+        Automatically calculate rewards if all required scores are available
+        """
+        has_video_score = self.video_quality_score is not None
+        has_audio_score = self.audio_quality_score is not None
+        has_comment_score = self.comment_analysis_score is not None
+        
+        if has_video_score and has_audio_score and has_comment_score:
+            # Calculate main reward
+            self.calculate_main_reward_score()
+            
+            # Calculate AI bonus
+            self.calculate_ai_bonus_percentage()
+            
+            # Check moderation flag
+            self.check_and_update_moderation_flag()
+            
+            # Calculate final reward
+            self.calculate_final_reward_score()
+            
+            # Update timestamp
+            from django.utils import timezone
+            self.reward_calculated_at = timezone.now()
+            
+            # Save all changes
+            self.save()
+            
+            return True
+        return False
+
+    def calculate_automatic_moderation_flag(self):
+        """
+        Calculate if content should be flagged for moderation based on comment sentiment.
+        This is ONLY used for flagging content for admin review, NOT for final reward calculation.
+        
+        Comment score ranges from -1 to 1.
+        Flagging logic:
+        - Score >= 0.5: No flag needed (positive sentiment)
+        - Score 0.1 to 0.49: No flag needed (neutral-positive)  
+        - Score -0.1 to 0.1: No flag needed (neutral)
+        - Score -0.49 to -0.11: No flag needed (neutral-negative)
+        - Score <= -0.5: FLAG FOR REVIEW (negative sentiment)
+        """
+        if self.comment_analysis_score is None:
+            return False  # No comment analysis available, no flag needed
+        elif self.comment_analysis_score < -0.5:
+            return True   # Flag for manual review
+        else:
+            return False  # No flag needed
+
+    def calculate_final_reward_score(self):
+        """
+        Calculate the final reward score using the formula:
+        final_reward = main_reward + ai_bonus_reward + moderation_adjustment_amount
+        
+        NEW LOGIC:
+        - Only manual admin moderation affects final rewards
+        - Automatic moderation is only used for flagging content for review
+        - If no manual moderation has been applied, moderation adjustment = 0%
+        """
+        from django.utils import timezone
+        
+        # Calculate all components
+        main_score = self.calculate_main_reward_score()
+        ai_bonus_pct = self.calculate_ai_bonus_percentage()  # This also sets ai_bonus_reward
+        
+        # Get the calculated AI bonus amount
+        ai_bonus_amount = self.ai_bonus_reward or 0
+        
+        # Only use manual moderation for final reward calculation
+        # If no manual moderation has been applied (not moderated), use 0%
+        if self.moderation_status == 'moderated' and self.moderation_adjustment is not None:
+            mod_adjustment_pct = self.moderation_adjustment
+        else:
+            mod_adjustment_pct = 0  # No moderation applied
+        
+        # Calculate moderation adjustment amount
+        mod_adjustment_amount = (main_score * mod_adjustment_pct) / 100 if mod_adjustment_pct else 0
+        
+        final_score = main_score + ai_bonus_amount + mod_adjustment_amount
+        
+        # Ensure final score is never negative
+        final_score = max(0, final_score)
+        
+        self.final_reward_score = round(final_score, 2)
+        self.reward_calculated_at = timezone.now()
+        
+        return final_score
+
+    def get_reward_breakdown(self):
+        """Get detailed breakdown of reward calculation"""
+        main_score = self.main_reward_score or 0
+        ai_bonus_pct = self.ai_bonus_percentage or 0
+        
+        # Only use manual moderation for reward breakdown
+        if self.moderation_status == 'moderated' and self.moderation_adjustment is not None:
+            mod_adjustment_pct = self.moderation_adjustment
+        else:
+            mod_adjustment_pct = 0  # No moderation applied
+        
+        ai_bonus_amount = (main_score * ai_bonus_pct) / 100
+        mod_adjustment_amount = (main_score * mod_adjustment_pct) / 100
+        
+        return {
+            'main_reward': main_score,
+            'ai_bonus_percentage': ai_bonus_pct,
+            'ai_bonus_amount': ai_bonus_amount,
+            'moderation_adjustment_percentage': mod_adjustment_pct,
+            'moderation_adjustment_amount': mod_adjustment_amount,
+            'final_reward': self.final_reward_score or 0,
+            'is_manually_moderated': self.moderation_status == 'moderated',
+            'is_flagged': self.is_flagged_for_moderation,
+            'components': {
+                'views': self.view_count,
+                'likes': self.like_count,
+                'comments': self.comment_count,
+                'video_quality_score': self.video_overall_score,
+                'audio_quality_score': self.audio_quality_score,
+                'comment_sentiment_score': self.comment_analysis_score,
+            }
         }
 
 
@@ -410,13 +649,16 @@ class Transaction(models.Model):
         ('view_reward', 'View Reward'),
         ('like_reward', 'Like Reward'),
         ('comment_reward', 'Comment Reward'),
+        ('content_creator_reward', 'Content Creator Reward'),
+        ('ai_bonus', 'AI Quality Bonus'),
+        ('moderation_adjustment', 'Moderation Adjustment'),
         ('withdrawal', 'Withdrawal'),
         ('bonus', 'Bonus'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     wallet = models.ForeignKey(Wallet, on_delete=models.CASCADE, related_name='transactions')
-    transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
+    transaction_type = models.CharField(max_length=30, choices=TRANSACTION_TYPES)
     amount = models.DecimalField(max_digits=10, decimal_places=4)
     description = models.CharField(max_length=255)
     related_short = models.ForeignKey(Short, on_delete=models.SET_NULL, null=True, blank=True)

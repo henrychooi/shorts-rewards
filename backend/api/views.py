@@ -22,6 +22,7 @@ from .serializers import (
     TransactionSerializer, AuditLogSerializer
 )
 from .comment_analysis_service import CommentAnalysisService
+from .reward_service import reward_service
 from .models import Note, Short, Like, Comment, View, Wallet, Transaction, AuditLog
 from .gemini_video_service import gemini_video_service
 from .gemini_audio_service import gemini_audio_service
@@ -100,6 +101,10 @@ class ShortCreateView(generics.CreateAPIView):
                 short.transcript_language = result.get('language', 'en')
                 short.audio_processed_at = timezone.now()
                 short.save(update_fields=['transcript', 'audio_quality_score', 'transcript_language', 'audio_processed_at'])
+                
+                # Trigger signal for automatic reward calculation
+                from .signals import analysis_completed
+                analysis_completed.send(sender=Short, short_id=short.id, analysis_type='audio')
                 
                 logger.info(f"Successfully processed audio for video {short.id}: quality_score={short.audio_quality_score}")
             else:
@@ -2056,3 +2061,351 @@ def trigger_automatic_analysis(request):
     except Exception as e:
         logger.error(f"Error in trigger_automatic_analysis: {e}")
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# Reward System API Views
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def calculate_short_rewards(request, short_id):
+    """
+    Calculate and assign rewards for a specific short
+    """
+    try:
+        short = get_object_or_404(Short, id=short_id, is_active=True)
+        
+        # Check if user owns the short or is admin
+        if short.author != request.user and not request.user.is_staff:
+            return Response(
+                {'error': 'Permission denied'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        from .reward_service import ContentCreatorRewardService
+        reward_service = ContentCreatorRewardService()
+        
+        # Calculate rewards for the short
+        result = reward_service.calculate_rewards_for_short(short)
+        
+        if result.get('error'):
+            return Response({
+                'success': False,
+                'error': result['error']
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response({
+            'success': True,
+            'short_id': str(short_id),
+            'rewards': {
+                'main_reward_score': result['main_reward_score'],
+                'ai_bonus_percentage': result['ai_bonus_percentage'],
+                'moderation_adjustment': result['moderation_adjustment'],
+                'final_reward_score': result['final_reward_score'],
+                'calculated_at': result['calculated_at'].isoformat()
+            },
+            'breakdown': result.get('breakdown', {})
+        })
+        
+    except Exception as e:
+        logger.error(f"Error calculating rewards for short {short_id}: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Reward calculation failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def process_short_payout(request, short_id):
+    """
+    Process payout for a specific short's accumulated rewards
+    """
+    try:
+        short = get_object_or_404(Short, id=short_id, is_active=True)
+        
+        # Check if user owns the short or is admin
+        if short.author != request.user and not request.user.is_staff:
+            return Response(
+                {'error': 'Permission denied'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        from .reward_service import ContentCreatorRewardService
+        reward_service = ContentCreatorRewardService()
+        
+        # Process payout for the short
+        result = reward_service.process_payout_for_short(short)
+        
+        if result.get('error'):
+            return Response({
+                'success': False,
+                'error': result['error']
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response({
+            'success': True,
+            'short_id': str(short_id),
+            'payout': {
+                'amount': str(result['payout_amount']),
+                'points_converted': result['points_converted'],
+                'transaction_id': str(result['transaction'].id),
+                'processed_at': result['processed_at'].isoformat()
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error processing payout for short {short_id}: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Payout processing failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def creator_reward_summary(request):
+    """
+    Get comprehensive reward summary for the authenticated creator
+    """
+    try:
+        from .reward_service import ContentCreatorRewardService
+        reward_service = ContentCreatorRewardService()
+        
+        # Get summary for the user
+        summary = reward_service.get_creator_summary(request.user)
+        
+        return Response({
+            'success': True,
+            'creator': request.user.username,
+            'summary': {
+                'total_shorts': summary['total_shorts'],
+                'shorts_with_rewards': summary['shorts_with_rewards'],
+                'total_reward_points': summary['total_reward_points'],
+                'estimated_payout': str(summary['estimated_payout']),
+                'average_main_reward': summary['average_main_reward'],
+                'average_ai_bonus': summary['average_ai_bonus'],
+                'average_moderation_score': summary['average_moderation_score'],
+                'performance_metrics': summary['performance_metrics']
+            },
+            'recent_rewards': summary['recent_rewards'][:10]  # Latest 10 rewards
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting creator reward summary for {request.user.username}: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Failed to get reward summary: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def admin_batch_calculate_rewards(request):
+    """
+    Admin endpoint to calculate rewards for multiple shorts in batch
+    """
+    try:
+        from .reward_service import ContentCreatorRewardService
+        reward_service = ContentCreatorRewardService()
+        
+        # Get parameters
+        creator_id = request.data.get('creator_id')
+        recalculate = request.data.get('recalculate', False)
+        limit = request.data.get('limit', 50)
+        
+        # Process rewards
+        result = reward_service.batch_calculate_rewards(
+            creator_id=creator_id,
+            recalculate=recalculate,
+            limit=limit
+        )
+        
+        return Response({
+            'success': True,
+            'batch_result': {
+                'processed_shorts': result['processed_shorts'],
+                'successful_calculations': result['successful_calculations'],
+                'failed_calculations': result['failed_calculations'],
+                'total_points_awarded': result['total_points_awarded'],
+                'processing_time': result['processing_time']
+            },
+            'results': result['results']
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in admin batch reward calculation: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Batch calculation failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def admin_batch_process_payouts(request):
+    """
+    Admin endpoint to process payouts for multiple creators
+    """
+    try:
+        from .reward_service import ContentCreatorRewardService
+        reward_service = ContentCreatorRewardService()
+        
+        # Get parameters
+        creator_ids = request.data.get('creator_ids', [])
+        minimum_payout = request.data.get('minimum_payout', 10.0)  # Minimum $10 payout
+        
+        # Process payouts
+        result = reward_service.batch_process_payouts(
+            creator_ids=creator_ids,
+            minimum_payout=minimum_payout
+        )
+        
+        return Response({
+            'success': True,
+            'payout_result': {
+                'processed_creators': result['processed_creators'],
+                'successful_payouts': result['successful_payouts'],
+                'failed_payouts': result['failed_payouts'],
+                'total_amount_paid': str(result['total_amount_paid']),
+                'processing_time': result['processing_time']
+            },
+            'results': result['results']
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in admin batch payout processing: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Batch payout processing failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def admin_reward_dashboard(request):
+    """
+    Admin dashboard with comprehensive reward system statistics
+    """
+    try:
+        from .reward_service import ContentCreatorRewardService
+        reward_service = ContentCreatorRewardService()
+        
+        # Get dashboard data
+        dashboard = reward_service.get_admin_dashboard()
+        
+        return Response({
+            'success': True,
+            'dashboard': {
+                'system_overview': {
+                    'total_creators': dashboard['total_creators'],
+                    'active_creators': dashboard['active_creators'],
+                    'total_shorts_with_rewards': dashboard['total_shorts_with_rewards'],
+                    'total_reward_points': dashboard['total_reward_points'],
+                    'total_estimated_payouts': str(dashboard['total_estimated_payouts'])
+                },
+                'recent_activity': {
+                    'rewards_calculated_today': dashboard['rewards_calculated_today'],
+                    'payouts_processed_today': dashboard['payouts_processed_today'],
+                    'total_amount_paid_today': str(dashboard['total_amount_paid_today'])
+                },
+                'performance_metrics': dashboard['performance_metrics'],
+                'top_creators': dashboard['top_creators'][:10],  # Top 10 creators
+                'recent_payouts': dashboard['recent_payouts'][:20]  # Latest 20 payouts
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting admin reward dashboard: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Dashboard data retrieval failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def reward_history(request):
+    """
+    Get reward calculation history for the authenticated user
+    """
+    try:
+        # Get user's shorts with rewards
+        user_shorts = Short.objects.filter(
+            author=request.user,
+            is_active=True,
+            reward_calculated_at__isnull=False
+        ).order_by('-reward_calculated_at')
+        
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 20))
+        
+        # Simple pagination
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_shorts = user_shorts[start:end]
+        
+        history = []
+        for short in paginated_shorts:
+            history.append({
+                'short_id': str(short.id),
+                'title': short.title or 'Untitled',
+                'main_reward_score': short.main_reward_score,
+                'ai_bonus_percentage': short.ai_bonus_percentage,
+                'moderation_adjustment': short.moderation_adjustment,
+                'final_reward_score': short.final_reward_score,
+                'calculated_at': short.reward_calculated_at.isoformat(),
+                'engagement_metrics': {
+                    'views': short.view_count,
+                    'likes': short.like_count,
+                    'comments': short.comment_count
+                }
+            })
+        
+        return Response({
+            'success': True,
+            'history': history,
+            'pagination': {
+                'page': page,
+                'page_size': page_size,
+                'total_count': user_shorts.count(),
+                'has_next': end < user_shorts.count()
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting reward history for {request.user.username}: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Failed to get reward history: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def reward_analytics(request):
+    """
+    Get reward analytics and insights for the authenticated user
+    """
+    try:
+        from .reward_service import ContentCreatorRewardService
+        reward_service = ContentCreatorRewardService()
+        
+        # Get analytics for the user
+        analytics = reward_service.get_creator_analytics(request.user)
+        
+        return Response({
+            'success': True,
+            'analytics': {
+                'performance_trends': analytics['performance_trends'],
+                'reward_distribution': analytics['reward_distribution'],
+                'top_performing_content': analytics['top_performing_content'],
+                'improvement_suggestions': analytics['improvement_suggestions'],
+                'monthly_progression': analytics['monthly_progression']
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting reward analytics for {request.user.username}: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Failed to get reward analytics: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

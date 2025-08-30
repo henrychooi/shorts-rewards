@@ -6,6 +6,7 @@ from django.contrib import messages
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_protect
 from django.utils.decorators import method_decorator
+from django.utils import timezone
 from .models import Short, Comment, Wallet, Transaction, AuditLog, View
 from .comment_analysis_service import CommentAnalysisService
 import logging
@@ -16,16 +17,35 @@ logger = logging.getLogger(__name__)
 
 @admin.register(Short)
 class ShortAdmin(admin.ModelAdmin):
-    list_display = ('title', 'author', 'view_count', 'like_count', 'comment_count', 'get_comment_score_display', 'get_audio_quality_display', 'get_video_quality_display', 'get_video_analysis_status_display', 'created_at', 'analyze_comments_action', 'analyze_video_action')
-    list_filter = ('created_at', 'author', 'audio_quality_score', 'comment_analysis_score', 'video_analysis_status', 'video_quality_score')
+    list_display = [
+        'title', 'author', 'duration', 'created_at', 'video_analysis_status',
+        'get_comment_score_display', 'get_audio_quality_display', 'get_video_quality_display',
+        'get_moderation_status_display', 'get_moderation_input_field',
+        'get_main_reward_display', 'get_ai_bonus_display', 'get_moderation_display', 'get_final_reward_display'
+    ]
+    list_filter = ('created_at', 'author', 'audio_quality_score', 'comment_analysis_score', 'video_analysis_status', 'video_quality_score', 'reward_calculated_at')
     search_fields = ('title', 'author__username', 'transcript', 'video_analysis_summary')
-    readonly_fields = ('created_at', 'updated_at', 'like_count', 'comment_count', 'audio_processed_at', 'comment_analysis_score', 'video_analysis_processed_at', 'video_quality_score', 'video_engagement_prediction', 'video_sentiment_score')
+    readonly_fields = [
+        'id', 'created_at', 'updated_at', 'view_count',
+        'get_comment_score_display', 'get_audio_quality_display', 'get_video_quality_display',
+        'get_moderation_status_display', 'get_moderation_input_field',
+        'get_main_reward_display', 'get_ai_bonus_display', 'get_moderation_display', 'get_final_reward_display'
+    ]
     fieldsets = (
         ('Basic Info', {
             'fields': ('title', 'author', 'video', 'duration')
         }),
         ('Engagement', {
             'fields': ('view_count', 'like_count', 'comment_count', 'comment_analysis_score')
+        }),
+        ('Reward System', {
+            'fields': ('main_reward_score', 'ai_bonus_percentage', 'ai_bonus_reward', 'moderation_adjustment', 'final_reward_score', 'reward_calculated_at'),
+            'description': 'Reward calculation based on engagement metrics, AI analysis, and moderation adjustments.'
+        }),
+        ('Moderation System', {
+            'fields': ('is_flagged_for_moderation', 'moderation_status', 'moderated_by', 'moderated_at', 'moderation_reason'),
+            'description': 'Moderation system for content review and adjustment. Content with comment score < -0.50 is automatically flagged.',
+            'classes': ('collapse',)
         }),
         ('Audio Analysis', {
             'fields': ('transcript', 'audio_quality_score', 'transcript_language', 'audio_processed_at'),
@@ -47,6 +67,7 @@ class ShortAdmin(admin.ModelAdmin):
         custom_urls = [
             path('analyze-comments/<uuid:short_id>/', self.admin_site.admin_view(self.analyze_comments_view), name='analyze-comments'),
             path('analyze-video/<uuid:short_id>/', self.admin_site.admin_view(self.analyze_video_view), name='analyze-video'),
+            path('moderate-short/<uuid:short_id>/', self.admin_site.admin_view(self.moderate_short_view), name='moderate-short'),
         ]
         return custom_urls + urls
 
@@ -106,7 +127,6 @@ class ShortAdmin(admin.ModelAdmin):
                     short.video_engagement_prediction = analysis_result.get('engagement_prediction', 0)
                     short.video_sentiment_score = analysis_result.get('sentiment_score', 0)
                     short.video_analysis_status = 'completed'
-                    from django.utils import timezone
                     short.video_analysis_processed_at = timezone.now()
                     short.video_analysis_error = None
                     
@@ -143,6 +163,79 @@ class ShortAdmin(admin.ModelAdmin):
             messages.error(request, f"Error during video analysis: {str(e)}")
             return HttpResponseRedirect(reverse('admin:api_short_changelist'))
 
+    @method_decorator(csrf_protect)
+    def moderate_short_view(self, request, short_id):
+        """Handle moderation adjustment for flagged content with enhanced auto-calculation"""
+        try:
+            short = get_object_or_404(Short, id=short_id)
+            
+            if request.method == 'POST':
+                # Get the adjustment percentage from the form
+                adjustment_str = request.POST.get('adjustment', '0')
+                reason = request.POST.get('reason', 'Admin adjustment via interface').strip()
+                
+                try:
+                    adjustment = float(adjustment_str)
+                except ValueError:
+                    messages.error(request, "Invalid adjustment value. Please enter a number.")
+                    return HttpResponseRedirect(reverse('admin:api_short_changelist'))
+                
+                # Validate adjustment range (-20% to +20%)
+                if not (-20 <= adjustment <= 20):
+                    messages.error(request, "Adjustment must be between -20% and +20%")
+                    return HttpResponseRedirect(reverse('admin:api_short_changelist'))
+                
+                # Store previous values for comparison
+                old_final_reward = float(short.final_reward_score or 0)
+                
+                # Apply moderation
+                short.moderation_adjustment = adjustment
+                short.moderation_status = 'moderated' if adjustment != 0 else 'cleared'
+                short.moderated_by = request.user
+                short.moderation_reason = reason
+                
+                # Clear flag if it was set
+                if short.is_flagged_for_moderation:
+                    short.is_flagged_for_moderation = False
+                
+                short.moderated_at = timezone.now()
+                
+                # Automatically recalculate final reward with new adjustment
+                short.calculate_final_reward_score()
+                
+                # Save all changes
+                short.save()
+                
+                # Provide detailed feedback
+                new_final_reward = float(short.final_reward_score or 0)
+                reward_change = float(new_final_reward - old_final_reward)
+                
+                if adjustment > 0:
+                    action_text = f"increased by {adjustment:.1f}%"
+                    change_color = "green"
+                elif adjustment < 0:
+                    action_text = f"decreased by {abs(adjustment):.1f}%"
+                    change_color = "red"
+                else:
+                    action_text = "set to neutral (0%)"
+                    change_color = "gray"
+                
+                # Create a simple success message without complex formatting
+                message_text = (
+                    f'Moderation applied successfully! Reward {action_text} '
+                    f'(change: {reward_change:+.2f} pts). '
+                    f'New final reward: {new_final_reward:.2f} points'
+                )
+                
+                messages.success(request, message_text)
+                
+            return HttpResponseRedirect(reverse('admin:api_short_changelist'))
+            
+        except Exception as e:
+            logger.error(f"Error in moderation view for short {short_id}: {str(e)}")
+            messages.error(request, f"Error during moderation: {str(e)}")
+            return HttpResponseRedirect(reverse('admin:api_short_changelist'))
+
     def get_comment_score_display(self, obj):
         if obj.comment_analysis_score is None:
             return "Not analyzed"
@@ -171,6 +264,114 @@ class ShortAdmin(admin.ModelAdmin):
         return status_icons.get(obj.video_analysis_status, obj.video_analysis_status)
     get_video_analysis_status_display.short_description = "Video Status"
 
+    # Reward System Display Methods
+    def get_main_reward_display(self, obj):
+        if obj.main_reward_score is None:
+            return "Not calculated"
+        return f"{obj.main_reward_score:.1f} pts"
+    get_main_reward_display.short_description = "Main Reward"
+
+    def get_ai_bonus_display(self, obj):
+        if obj.ai_bonus_percentage is None or obj.ai_bonus_reward is None:
+            return "Not calculated"
+        return f"{obj.ai_bonus_percentage:.1f}% ({obj.ai_bonus_reward:.1f} pts)"
+    get_ai_bonus_display.short_description = "AI Bonus"
+
+    def get_moderation_display(self, obj):
+        if obj.moderation_adjustment is None:
+            return "0%"
+        color = "green" if obj.moderation_adjustment > 0 else "red" if obj.moderation_adjustment < 0 else "gray"
+        return format_html(
+            '<span style="color: {};">{}</span>',
+            color, f"{obj.moderation_adjustment:+.1f}%"
+        )
+    get_moderation_display.short_description = "Moderation"
+
+    def get_final_reward_display(self, obj):
+        if obj.final_reward_score is None:
+            return "Not calculated"
+        return format_html(
+            '<strong style="color: #2196F3; background: #E3F2FD; padding: 2px 6px; border-radius: 3px;">{} pts</strong>',
+            f"{obj.final_reward_score:.1f}"
+        )
+    get_final_reward_display.short_description = "Final Reward"
+
+    def get_moderation_status_display(self, obj):
+        """Display moderation status with color coding"""
+        status_colors = {
+            'none': 'gray',
+            'flagged': 'red',
+            'under_review': 'orange',
+            'moderated': 'purple',
+            'cleared': 'green'
+        }
+        color = status_colors.get(obj.moderation_status, 'gray')
+        
+        if obj.is_flagged_for_moderation:
+            flag_icon = "🚩"
+        else:
+            flag_icon = ""
+            
+        return format_html(
+            '<span style="color: {};">{} {}</span>',
+            color, flag_icon, obj.get_moderation_status_display()
+        )
+    get_moderation_status_display.short_description = "Mod Status"
+
+    def get_moderation_input_field(self, obj):
+        """Display interactive moderation input field for flagged content"""
+        if obj.is_flagged_for_moderation or obj.moderation_status in ['flagged', 'under_review'] or obj.moderation_status == 'moderated':
+            current_value = obj.moderation_adjustment or 0
+            return format_html(
+                '''
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <input type="number" 
+                           id="mod_input_{}" 
+                           value="{}" 
+                           min="-20" 
+                           max="20" 
+                           step="0.1" 
+                           style="width: 60px; padding: 2px;"
+                           onchange="applyModeration('{}', this.value)"
+                    />
+                    <span style="font-size: 11px;">%</span>
+                    <button onclick="applyModeration('{}', document.getElementById('mod_input_{}').value)" 
+                            style="background: #4CAF50; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 11px;">
+                        Apply
+                    </button>
+                </div>
+                <script>
+                function applyModeration(shortId, adjustment) {{
+                    const value = parseFloat(adjustment);
+                    if (isNaN(value) || value < -20 || value > 20) {{
+                        alert('Please enter a value between -20 and 20');
+                        return;
+                    }}
+                    
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = '/admin/api/short/moderate-short/' + shortId + '/';
+                    
+                    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+                    form.innerHTML = `
+                        <input type="hidden" name="csrfmiddlewaretoken" value="${{csrfToken}}">
+                        <input type="hidden" name="adjustment" value="${{value}}">
+                        <input type="hidden" name="reason" value="Admin adjustment via interface">
+                    `;
+                    
+                    document.body.appendChild(form);
+                    form.submit();
+                }}
+                </script>
+                ''',
+                obj.id, current_value, obj.id, obj.id, obj.id
+            )
+        elif obj.moderation_status == 'cleared':
+            return format_html('<span style="color: green; font-size: 12px;">✅ Cleared</span>')
+        else:
+            return format_html('<span style="color: gray; font-size: 12px;">No action needed</span>')
+    get_moderation_input_field.short_description = "Moderate"
+
     def analyze_comments_action(self, obj):
         """Generate a button to analyze comments for this short"""
         url = reverse('admin:analyze-comments', args=[obj.id])
@@ -196,6 +397,19 @@ class ShortAdmin(admin.ModelAdmin):
                 url
             )
     analyze_video_action.short_description = "Video AI"
+
+    def calculate_rewards_action(self, obj):
+        """Generate a button to calculate rewards for this short"""
+        # Create a simple JavaScript onclick handler for now
+        if obj.reward_calculated_at:
+            return format_html(
+                '<button onclick="alert(\'Feature coming soon!\');" class="button">🔢 Recalculate</button>'
+            )
+        else:
+            return format_html(
+                '<button onclick="alert(\'Feature coming soon!\');" class="button">💰 Calculate</button>'
+            )
+    calculate_rewards_action.short_description = "Rewards"
 
     def analyze_comments_for_selected(self, request, queryset):
         """Admin action to analyze comments for selected shorts"""
@@ -271,7 +485,6 @@ class ShortAdmin(admin.ModelAdmin):
                         short.video_engagement_prediction = analysis_result.get('engagement_prediction', 0)
                         short.video_sentiment_score = analysis_result.get('sentiment_score', 0)
                         short.video_analysis_status = 'completed'
-                        from django.utils import timezone
                         short.video_analysis_processed_at = timezone.now()
                         short.video_analysis_error = None
                         
@@ -338,7 +551,7 @@ class AuditLogAdmin(admin.ModelAdmin):
 
 @admin.register(Comment)
 class CommentAdmin(admin.ModelAdmin):
-    list_display = ('user', 'short', 'get_content_preview', 'get_sentiment_score_display', 'get_sentiment_label_display', 'analyzed_at', 'created_at', 'analyze_comment_action')
+    list_display = ('user', 'short', 'get_content_preview', 'get_sentiment_score_display', 'get_sentiment_label_display', 'analyzed_at', 'created_at')
     list_filter = ('created_at', 'sentiment_label', 'analyzed_at', 'is_active')
     search_fields = ('content', 'user__username', 'short__title', 'sentiment_label')
     readonly_fields = ('created_at', 'updated_at', 'analyzed_at', 'sentiment_score', 'sentiment_label')
@@ -347,8 +560,8 @@ class CommentAdmin(admin.ModelAdmin):
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
-            path('analyze-comment/<uuid:comment_id>/', self.admin_site.admin_view(self.analyze_comment_view), name='analyze-comment'),
-            path('reanalyze-comment/<uuid:comment_id>/', self.admin_site.admin_view(self.reanalyze_comment_view), name='reanalyze-comment'),
+            path('analyze-comment/<int:comment_id>/', self.admin_site.admin_view(self.analyze_comment_view), name='analyze-comment'),
+            path('reanalyze-comment/<int:comment_id>/', self.admin_site.admin_view(self.reanalyze_comment_view), name='reanalyze-comment'),
         ]
         return custom_urls + urls
 
@@ -416,22 +629,22 @@ class CommentAdmin(admin.ModelAdmin):
                           color, obj.sentiment_label.title())
     get_sentiment_label_display.short_description = "Sentiment"
 
-    def analyze_comment_action(self, obj):
-        """Generate a button to analyze this comment"""
-        if obj.sentiment_score is not None:
-            # Already analyzed, offer re-analysis
-            url = reverse('admin:reanalyze-comment', args=[obj.id])
-            button_text = "🔄 Re-analyze"
-        else:
-            # Not analyzed yet
-            url = reverse('admin:analyze-comment', args=[obj.id])
-            button_text = "📊 Analyze"
+    # def analyze_comment_action(self, obj):
+    #     """Generate a button to analyze this comment"""
+    #     if obj.sentiment_score is not None:
+    #         # Already analyzed, offer re-analysis
+    #         url = reverse('admin:reanalyze-comment', args=[obj.id])
+    #         button_text = "🔄 Re-analyze"
+    #     else:
+    #         # Not analyzed yet
+    #         url = reverse('admin:analyze-comment', args=[obj.id])
+    #         button_text = "📊 Analyze"
 
-        return format_html(
-            '<a class="button" href="{}" onclick="return confirm(\'{}?\');">{}</a>',
-            url, f"Analyze comment by {obj.user.username}", button_text
-        )
-    analyze_comment_action.short_description = "Actions"
+    #     return format_html(
+    #         '<a class="button" href="{}" onclick="return confirm(\'{}?\');">{}</a>',
+    #         url, f"Analyze comment by {obj.user.username}", button_text
+    #     )
+    # analyze_comment_action.short_description = "Actions"
 
     def analyze_comments_for_selected(self, request, queryset):
         """Admin action to analyze selected comments"""
