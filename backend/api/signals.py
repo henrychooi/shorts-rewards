@@ -3,7 +3,8 @@ Django signals for automatic reward calculation and moderation flagging
 """
 from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
-from .models import Short, Comment, Like
+from .models import Short, Comment, Like, Transaction, Wallet
+from decimal import Decimal
 import logging
 
 logger = logging.getLogger(__name__)
@@ -128,3 +129,55 @@ def update_comment_count_on_comment_delete(sender, instance, **kwargs):
         logger.debug(f"Updated comment_count for Short {short.id} after comment delete")
     except Exception as e:
         logger.error(f"Error updating comment_count after comment delete: {e}")
+
+
+@receiver(post_save, sender=Transaction)
+def update_wallet_on_transaction_save(sender, instance, created, **kwargs):
+    """
+    Update wallet balance and total_earnings when a transaction is created or updated
+    """
+    try:
+        wallet = instance.wallet
+        
+        # Calculate total balance from all confirmed transactions
+        confirmed_transactions = wallet.transactions.filter(is_confirmed=True)
+        total_balance = sum(t.amount for t in confirmed_transactions)
+        
+        # Calculate total earnings (only positive amounts)
+        total_earnings = sum(t.amount for t in confirmed_transactions if t.amount > 0)
+        
+        # Update wallet fields
+        wallet.balance = total_balance
+        wallet.total_earnings = total_earnings
+        wallet.save(update_fields=['balance', 'total_earnings'])
+        
+        logger.info(f"Updated wallet for {wallet.user.username}: balance=${total_balance}, total_earnings=${total_earnings}")
+        
+    except Exception as e:
+        logger.error(f"Error updating wallet after transaction save: {e}")
+
+
+@receiver(post_delete, sender=Transaction)
+def update_wallet_on_transaction_delete(sender, instance, **kwargs):
+    """
+    Update wallet balance and total_earnings when a transaction is deleted
+    """
+    try:
+        wallet = instance.wallet
+        
+        # Calculate total balance from all confirmed transactions
+        confirmed_transactions = wallet.transactions.filter(is_confirmed=True)
+        total_balance = sum(t.amount for t in confirmed_transactions)
+        
+        # Calculate total earnings (only positive amounts)
+        total_earnings = sum(t.amount for t in confirmed_transactions if t.amount > 0)
+        
+        # Update wallet fields
+        wallet.balance = total_balance
+        wallet.total_earnings = total_earnings
+        wallet.save(update_fields=['balance', 'total_earnings'])
+        
+        logger.info(f"Updated wallet for {wallet.user.username} after transaction delete: balance=${total_balance}, total_earnings=${total_earnings}")
+        
+    except Exception as e:
+        logger.error(f"Error updating wallet after transaction delete: {e}")
