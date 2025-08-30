@@ -94,8 +94,8 @@ class ShortCreateView(generics.CreateAPIView):
             # Process the video using Gemini for audio analysis
             result = gemini_audio_service.analyze_video_audio(video_path)
             
-            if result and 'error' not in result:
-                # Update the short with transcript and quality data
+            if result:
+                # Always save the results - the service provides default scores on errors
                 short.transcript = result.get('transcript', '')
                 short.audio_quality_score = result.get('audio_quality_score', 0.0)
                 short.transcript_language = result.get('language', 'en')
@@ -106,9 +106,12 @@ class ShortCreateView(generics.CreateAPIView):
                 from .signals import analysis_completed
                 analysis_completed.send(sender=Short, short_id=short.id, analysis_type='audio')
                 
-                logger.info(f"Successfully processed audio for video {short.id}: quality_score={short.audio_quality_score}")
+                if result.get('success', True):
+                    logger.info(f"Successfully processed audio for video {short.id}: quality_score={short.audio_quality_score}")
+                else:
+                    logger.warning(f"Audio processed with fallback scores for video {short.id}: quality_score={short.audio_quality_score}, error={result.get('error', 'Unknown error')}")
             else:
-                logger.error(f"Failed to process audio for video {short.id}: {result.get('error', 'Unknown error')}")
+                logger.error(f"Failed to process audio for video {short.id}: No result returned")
         
         except Exception as e:
             logger.error(f"Exception while processing audio for video {short.id}: {str(e)}")

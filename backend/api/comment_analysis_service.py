@@ -2,6 +2,7 @@ import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from django.db import transaction
+from django.utils import timezone
 from .models import Comment, Short
 from transformers import pipeline
 
@@ -146,7 +147,8 @@ class CommentAnalysisService:
         # Update the comment with analysis results
         comment.sentiment_score = analysis_result['sentiment_score']
         comment.sentiment_label = analysis_result['sentiment_label']
-        comment.analyzed_at = datetime.now()
+        from django.utils import timezone
+        comment.analyzed_at = timezone.now()
         comment.save(update_fields=['sentiment_score', 'sentiment_label', 'analyzed_at'])
 
         logger.info(f"Comment {comment.id} analysis complete - Score: {analysis_result['sentiment_score']}, Label: {analysis_result['sentiment_label']}")

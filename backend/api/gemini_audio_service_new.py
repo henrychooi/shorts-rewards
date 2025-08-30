@@ -171,92 +171,37 @@ SUMMARY: [brief summary of audio content]
             raise
     
     def _analyze_small_audio(self, audio_path: str) -> Dict[str, Any]:
-        """Analyze small audio files using inline data with retry logic"""
-        max_retries = 3
-        retry_delay = 2  # seconds
-        
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"Attempting audio analysis (attempt {attempt + 1}/{max_retries})")
-                
-                # Read audio data
-                with open(audio_path, 'rb') as audio_file:
-                    audio_bytes = audio_file.read()
-                
-                # Import base64 for encoding
-                import base64
-                encoded_audio = base64.b64encode(audio_bytes).decode('utf-8')
-                
-                # Create content parts for the API
-                audio_part = {
-                    "inline_data": {
-                        "mime_type": "audio/wav",
-                        "data": encoded_audio
-                    }
+        """Analyze small audio files using inline data"""
+        try:
+            # Read audio data
+            with open(audio_path, 'rb') as audio_file:
+                audio_bytes = audio_file.read()
+            
+            # Import base64 for encoding
+            import base64
+            encoded_audio = base64.b64encode(audio_bytes).decode('utf-8')
+            
+            # Create content parts for the API
+            audio_part = {
+                "inline_data": {
+                    "mime_type": "audio/wav",
+                    "data": encoded_audio
                 }
+            }
+            
+            text_part = {"text": self._prepare_audio_analysis_prompt()}
+            
+            # Generate content
+            response = self.client.generate_content([audio_part, text_part])
+            
+            if response and response.text:
+                return self._parse_audio_analysis_response(response.text, audio_path)
+            else:
+                raise Exception("Empty response from Gemini API")
                 
-                text_part = {"text": self._prepare_audio_analysis_prompt()}
-                
-                # Generate content with timeout
-                response = self.client.generate_content(
-                    [audio_part, text_part],
-                    generation_config={
-                        'temperature': 0.3,
-                        'top_p': 0.8,
-                        'top_k': 40,
-                        'max_output_tokens': 2048,
-                    }
-                )
-                
-                if response and response.text:
-                    logger.info(f"Audio analysis successful on attempt {attempt + 1}")
-                    return self._parse_audio_analysis_response(response.text, audio_path)
-                else:
-                    raise Exception("Empty response from Gemini API")
-                    
-            except Exception as e:
-                error_msg = str(e)
-                logger.warning(f"Attempt {attempt + 1} failed: {error_msg}")
-                
-                # Check if it's a retryable error
-                if ("500" in error_msg or "internal error" in error_msg.lower() or 
-                    "timeout" in error_msg.lower() or "network" in error_msg.lower()):
-                    
-                    if attempt < max_retries - 1:  # Not the last attempt
-                        logger.info(f"Retrying in {retry_delay} seconds...")
-                        time.sleep(retry_delay)
-                        retry_delay *= 1.5  # Exponential backoff
-                        continue
-                    else:
-                        logger.error(f"All {max_retries} attempts failed. Returning default scores.")
-                        # Return default scores instead of failing completely
-                        return self._get_default_audio_analysis(audio_path, f"API failed after {max_retries} attempts: {error_msg}")
-                else:
-                    # Non-retryable error, fail immediately
-                    logger.error(f"Non-retryable error in audio analysis: {error_msg}")
-                    return self._get_default_audio_analysis(audio_path, f"Analysis error: {error_msg}")
-        
-        # Should not reach here, but just in case
-        return self._get_default_audio_analysis(audio_path, "Unexpected error in retry loop")
-    
-    def _get_default_audio_analysis(self, audio_path: str, error_message: str) -> Dict[str, Any]:
-        """Return default analysis when Gemini API fails"""
-        logger.warning(f"Returning default audio analysis due to: {error_message}")
-        return {
-            'success': False,
-            'audio_path': audio_path,
-            'analysis_timestamp': timezone.now().isoformat(),
-            'error': error_message,
-            'technical_quality': 50,
-            'speech_clarity': 50,
-            'content_engagement': 50,
-            'production_value': 50,
-            'appropriateness': 5,
-            'overall_score': 50,
-            'transcription': 'Analysis failed - using default values',
-            'summary': 'Audio analysis service temporarily unavailable',
-            'raw_response': f'Error: {error_message}'
-        }
+        except Exception as e:
+            logger.error(f"Error in small audio analysis: {e}")
+            raise
     
     def _parse_audio_analysis_response(self, response_text: str, audio_path: str) -> Dict[str, Any]:
         """Parse the AI response and extract structured audio data"""
@@ -409,17 +354,15 @@ SUMMARY: [brief summary of audio content]
                 logger.info(f"Using imageio_ffmpeg FFmpeg at: {ffmpeg_path}")
             except ImportError:
                 logger.warning("imageio_ffmpeg not available, trying system FFmpeg")
-                # Fallback to system FFmpeg if imageio_ffmpeg not available
+            
+            # Fallback to system FFmpeg if imageio_ffmpeg not available
+            if not ffmpeg_path:
                 import shutil
                 ffmpeg_path = shutil.which('ffmpeg')
                 if not ffmpeg_path:
                     logger.warning("FFmpeg not found in system PATH")
                     return False
                 logger.info(f"Using system FFmpeg at: {ffmpeg_path}")
-            
-            if not ffmpeg_path:
-                logger.error("No FFmpeg available")
-                return False
             
             cmd = [
                 ffmpeg_path,
@@ -447,10 +390,8 @@ SUMMARY: [brief summary of audio content]
                 return True
             else:
                 logger.warning(f"FFmpeg failed with return code {result.returncode}")
-                if result.stderr:
-                    logger.warning(f"FFmpeg stderr: {result.stderr}")
-                if result.stdout:
-                    logger.warning(f"FFmpeg stdout: {result.stdout}")
+                logger.warning(f"FFmpeg stderr: {result.stderr}")
+                logger.warning(f"FFmpeg stdout: {result.stdout}")
                 return False
                 
         except subprocess.TimeoutExpired:
@@ -585,15 +526,12 @@ SUMMARY: [brief summary of audio content]
             # Analyze the extracted audio
             analysis_result = self.analyze_audio(temp_audio_path)
             
-            # Add video-specific metadata and ensure compatibility with views.py
+            # Add video-specific metadata
             analysis_result.update({
                 'source_video': video_path,
                 'extracted_audio_size': file_size,
                 'extraction_method': 'ffmpeg',
-                'video_to_audio_analysis': True,
-                'audio_quality_score': analysis_result.get('overall_score', 50),  # Add this for views.py compatibility
-                'transcript': analysis_result.get('transcription', ''),  # Map transcription to transcript
-                'language': 'en'  # Default language
+                'video_to_audio_analysis': True
             })
             
             logger.info("Video audio analysis completed successfully")
