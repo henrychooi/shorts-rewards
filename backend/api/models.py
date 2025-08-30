@@ -341,10 +341,11 @@ class Short(models.Model):
     def check_and_update_moderation_flag(self):
         """
         Check if short should be flagged for moderation based on comment sentiment
-        Automatically flags when comment score < -0.50
+        Automatically flags when comment score is outside -0.8 to 0.8 range
         """
         if self.comment_analysis_score is not None:
-            should_be_flagged = self.comment_analysis_score < -0.50
+            # Flag if sentiment is too extreme (outside -0.8 to 0.8 range)
+            should_be_flagged = (self.comment_analysis_score < -0.8 or self.comment_analysis_score > 0.8)
             
             if should_be_flagged and not self.is_flagged_for_moderation:
                 # Flag for moderation
@@ -353,7 +354,7 @@ class Short(models.Model):
                 self.save(update_fields=['is_flagged_for_moderation', 'moderation_status'])
                 
             elif not should_be_flagged and self.is_flagged_for_moderation and self.moderation_status == 'flagged':
-                # Unflag if comment score improved and hasn't been manually moderated
+                # Unflag if comment score is back within acceptable range and hasn't been manually moderated
                 self.is_flagged_for_moderation = False
                 self.moderation_status = 'cleared'
                 self.save(update_fields=['is_flagged_for_moderation', 'moderation_status'])
@@ -362,21 +363,27 @@ class Short(models.Model):
 
     def auto_calculate_rewards_if_ready(self):
         """
-        Automatically calculate rewards if all required scores are available
+        Automatically calculate rewards if required scores are available
+        Logic: Either (video AND audio) OR comment scores must be present
         """
         has_video_score = self.video_quality_score is not None
         has_audio_score = self.audio_quality_score is not None
         has_comment_score = self.comment_analysis_score is not None
         
-        if has_video_score and has_audio_score and has_comment_score:
+        # Check if we have either (video AND audio) OR comment analysis
+        has_video_audio = has_video_score and has_audio_score
+        can_calculate = has_video_audio or has_comment_score
+        
+        if can_calculate:
             # Calculate main reward
             self.calculate_main_reward_score()
             
             # Calculate AI bonus
             self.calculate_ai_bonus_percentage()
             
-            # Check moderation flag
-            self.check_and_update_moderation_flag()
+            # Check moderation flag (only if we have comment score)
+            if has_comment_score:
+                self.check_and_update_moderation_flag()
             
             # Calculate final reward
             self.calculate_final_reward_score()
@@ -398,18 +405,15 @@ class Short(models.Model):
         
         Comment score ranges from -1 to 1.
         Flagging logic:
-        - Score >= 0.5: No flag needed (positive sentiment)
-        - Score 0.1 to 0.49: No flag needed (neutral-positive)  
-        - Score -0.1 to 0.1: No flag needed (neutral)
-        - Score -0.49 to -0.11: No flag needed (neutral-negative)
-        - Score <= -0.5: FLAG FOR REVIEW (negative sentiment)
+        - Score between -0.8 and 0.8: No flag needed (acceptable sentiment range)
+        - Score < -0.8 or > 0.8: FLAG FOR REVIEW (extreme sentiment)
         """
         if self.comment_analysis_score is None:
             return False  # No comment analysis available, no flag needed
-        elif self.comment_analysis_score < -0.5:
-            return True   # Flag for manual review
+        elif self.comment_analysis_score < -0.8 or self.comment_analysis_score > 0.8:
+            return True   # Flag for manual review (extreme sentiment)
         else:
-            return False  # No flag needed
+            return False  # No flag needed (acceptable range)
 
     def calculate_final_reward_score(self):
         """
