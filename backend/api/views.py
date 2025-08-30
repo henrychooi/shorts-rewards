@@ -556,16 +556,6 @@ def add_comment(request, short_id):
         analysis_thread.daemon = True
         analysis_thread.start()
         
-        # Award comment reward to the short's author
-        comment_reward = 10.005  # $10.005 per comment
-        create_reward_transaction(
-            user=short.author,
-            transaction_type='comment_reward',
-            amount=comment_reward,
-            description=f"Comment reward for '{short.title or 'Untitled'}'"[:255],
-            related_short=short
-        )
-        
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
