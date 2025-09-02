@@ -6,6 +6,7 @@ import Profile from "./Profile";
 import Wallet from "../components/Wallet";
 import api from "../api";
 import { shortsApi } from "../services/shortsApi";
+import { useViewCount } from "../contexts/ViewCountContext";
 import "../styles/Home.css";
 
 // Helper function to format numbers
@@ -27,6 +28,7 @@ function Home() {
   const [profileUsername, setProfileUsername] = useState(null);
   const [previewShorts, setPreviewShorts] = useState([]);
   const [loadingShorts, setLoadingShorts] = useState(true);
+  const { viewCounts } = useViewCount();
 
   useEffect(() => {
     getCurrentUser();
@@ -139,7 +141,7 @@ function Home() {
               </button>
               <h2>All Shorts</h2>
             </div>
-            <ShortsFeed key={refreshFeed} onProfileClick={handleProfileView} />
+            <ShortsFeed key={`${refreshFeed}-${currentView}`} onProfileClick={handleProfileView} />
           </div>
         );
       case "home":
@@ -298,7 +300,7 @@ function Home() {
                                   <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                                   <circle cx="12" cy="12" r="3" />
                                 </svg>
-                                {formatCount(short.view_count || 0)}
+                                {formatCount(viewCounts[short.id] || short.view_count || 0)}
                               </span>
                               <span>
                                 <svg

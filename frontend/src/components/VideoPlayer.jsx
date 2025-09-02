@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { shortsApi } from "../services/shortsApi";
+import { useViewCount } from "../contexts/ViewCountContext";
 import "./VideoPlayer.css";
 
 const VideoPlayer = ({ short, isActive, onProfileClick }) => {
@@ -85,6 +86,8 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
     };
   }, [isActive, viewTracked]);
 
+  const { updateViewCount } = useViewCount();
+  
   const trackView = async () => {
     if (viewTracked) return;
 
@@ -98,6 +101,8 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
       if (response.data.status === "success") {
         setViewTracked(true);
         setViewCount(response.data.view_count);
+        // Update the global view count context
+        updateViewCount(short.id, response.data.view_count);
         console.log(`View tracked! New count: ${response.data.view_count}`);
       }
     } catch (error) {

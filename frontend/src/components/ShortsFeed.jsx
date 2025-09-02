@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import VideoPlayer from "./VideoPlayer";
 import { shortsApi } from "../services/shortsApi";
+import { useViewCount } from "../contexts/ViewCountContext";
 import "./ShortsFeed.css";
 
 const ShortsFeed = ({ onProfileClick }) => {
@@ -11,6 +12,7 @@ const ShortsFeed = ({ onProfileClick }) => {
   const containerRef = useRef(null);
   const touchStartY = useRef(0);
   const touchEndY = useRef(0);
+  const { viewCounts } = useViewCount();
 
   useEffect(() => {
     loadShorts();
@@ -301,7 +303,10 @@ const ShortsFeed = ({ onProfileClick }) => {
         {shorts.map((short, index) => (
           <div key={short.id} className="modern-short-item">
             <VideoPlayer
-              short={short}
+              short={{
+                ...short,
+                view_count: viewCounts[short.id] || short.view_count
+              }}
               isActive={index === currentIndex}
               onProfileClick={onProfileClick}
             />

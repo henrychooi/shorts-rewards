@@ -591,14 +591,19 @@ def track_view(request, short_id):
             view_count=F('view_count') + 1
         )
         
-        # Get the updated count to return
+        # Get the updated count and recalculate rewards
         short.refresh_from_db()
+        
+        # Calculate and update the reward score
+        short.main_reward_score = short.calculate_main_reward_score()
+        short.save(update_fields=['main_reward_score'])
         
         print(f"DEBUG: View incremented for short {short_id}. New view count: {short.view_count}")
         
         return Response({
             'status': 'success',
-            'view_count': short.view_count
+            'view_count': short.view_count,
+            'main_reward_score': short.main_reward_score
         })
         
     except Exception as e:
