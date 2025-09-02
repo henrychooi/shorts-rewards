@@ -1,19 +1,24 @@
 import { useState, useRef, useEffect } from "react";
 import { shortsApi } from "../services/shortsApi";
 import { useViewCount } from "../contexts/ViewCountContext";
+import { useLikeCount } from "../contexts/LikeCountContext";
 import "./VideoPlayer.css";
 
 const VideoPlayer = ({ short, isActive, onProfileClick }) => {
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false); // Start with audio enabled
-  const [isLiked, setIsLiked] = useState(short.is_liked);
-  const [likeCount, setLikeCount] = useState(short.like_count);
-  const [viewCount, setViewCount] = useState(short.view_count);
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState("");
   const [viewTracked, setViewTracked] = useState(false);
+
+  // Get like data from context or fall back to short prop
+  const { likeCounts, updateLikeCount } = useLikeCount();
+  const shortLikeData = likeCounts[short.id];
+  const [isLiked, setIsLiked] = useState(shortLikeData?.isLiked ?? short.is_liked);
+  const [likeCount, setLikeCount] = useState(shortLikeData?.likeCount ?? short.like_count);
+  const [viewCount, setViewCount] = useState(short.view_count);
 
   // Enhanced watch tracking
   const [watchProgress, setWatchProgress] = useState({
@@ -85,6 +90,14 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
       }
     };
   }, [isActive, viewTracked]);
+
+  // Sync like data from context when it changes
+  useEffect(() => {
+    if (shortLikeData) {
+      setIsLiked(shortLikeData.isLiked);
+      setLikeCount(shortLikeData.likeCount);
+    }
+  }, [shortLikeData]);
 
   const { updateViewCount } = useViewCount();
   
@@ -197,8 +210,14 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
   const handleLike = async () => {
     try {
       const response = await shortsApi.toggleLike(short.id);
-      setIsLiked(response.data.liked);
-      setLikeCount(response.data.like_count);
+      const newIsLiked = response.data.liked;
+      const newLikeCount = response.data.like_count;
+      
+      setIsLiked(newIsLiked);
+      setLikeCount(newLikeCount);
+      
+      // Update the global like count context
+      updateLikeCount(short.id, newLikeCount, newIsLiked);
     } catch (error) {
       console.error("Error toggling like:", error);
     }

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import VideoPlayer from "./VideoPlayer";
 import { shortsApi } from "../services/shortsApi";
 import { useViewCount } from "../contexts/ViewCountContext";
+import { useLikeCount } from "../contexts/LikeCountContext";
 import "./ShortsFeed.css";
 
 const ShortsFeed = ({ onProfileClick }) => {
@@ -13,6 +14,7 @@ const ShortsFeed = ({ onProfileClick }) => {
   const touchStartY = useRef(0);
   const touchEndY = useRef(0);
   const { viewCounts } = useViewCount();
+  const { likeCounts } = useLikeCount();
 
   useEffect(() => {
     loadShorts();

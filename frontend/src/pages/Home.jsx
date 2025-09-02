@@ -7,6 +7,7 @@ import Wallet from "../components/Wallet";
 import api from "../api";
 import { shortsApi } from "../services/shortsApi";
 import { useViewCount } from "../contexts/ViewCountContext";
+import { useLikeCount } from "../contexts/LikeCountContext";
 import "../styles/Home.css";
 
 // Helper function to format numbers
@@ -29,11 +30,19 @@ function Home() {
   const [previewShorts, setPreviewShorts] = useState([]);
   const [loadingShorts, setLoadingShorts] = useState(true);
   const { viewCounts } = useViewCount();
+  const { likeCounts } = useLikeCount();
 
   useEffect(() => {
     getCurrentUser();
     loadPreviewShorts();
   }, []);
+
+  // Refresh preview shorts when returning to home view
+  useEffect(() => {
+    if (currentView === "home") {
+      loadPreviewShorts();
+    }
+  }, [currentView]);
 
   const loadPreviewShorts = async () => {
     try {
@@ -141,7 +150,10 @@ function Home() {
               </button>
               <h2>All Shorts</h2>
             </div>
-            <ShortsFeed key={`${refreshFeed}-${currentView}`} onProfileClick={handleProfileView} />
+            <ShortsFeed 
+              key={`${refreshFeed}-${currentView}`} 
+              onProfileClick={handleProfileView} 
+            />
           </div>
         );
       case "home":
@@ -311,7 +323,7 @@ function Home() {
                                 >
                                   <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
                                 </svg>
-                                {formatCount(short.like_count || 0)}
+                                {formatCount(likeCounts[short.id]?.likeCount ?? short.like_count ?? 0)}
                               </span>
                             </div>
                           </div>
