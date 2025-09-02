@@ -3,7 +3,7 @@ Django signals for automatic reward calculation and moderation flagging
 """
 from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
-from .models import Short, Comment, Like, Transaction, Wallet
+from .models import Short, Comment, Like, Transaction, Wallet, View
 from decimal import Decimal
 import logging
 
@@ -92,12 +92,24 @@ def on_analysis_completed(sender, short_id, analysis_type, **kwargs):
 @receiver(post_save, sender=Like)
 def update_like_count_on_like_save(sender, instance, created, **kwargs):
     """
-    Update cached like_count when a Like is created
+    Update cached like_count when a Like is created and recalculate rewards
     """
     try:
         short = instance.short
         short.like_count = short.like_count_calculated
         short.save(update_fields=['like_count'])
+        
+        # Recalculate rewards if they've been calculated before
+        if short.reward_calculated_at:
+            short.calculate_main_reward_score()
+            short.calculate_ai_bonus_percentage() 
+            short.calculate_final_reward_score()
+            short.save()
+            logger.info(f"Recalculated complete rewards for Short {short.id} after like change")
+        else:
+            # Try auto-calculation if this is the first time
+            short.auto_calculate_rewards_if_ready()
+            
         logger.debug(f"Updated like_count for Short {short.id} after like save")
     except Exception as e:
         logger.error(f"Error updating like_count after like save: {e}")
@@ -106,12 +118,21 @@ def update_like_count_on_like_save(sender, instance, created, **kwargs):
 @receiver(post_delete, sender=Like)
 def update_like_count_on_like_delete(sender, instance, **kwargs):
     """
-    Update cached like_count when a Like is deleted
+    Update cached like_count when a Like is deleted and recalculate rewards
     """
     try:
         short = instance.short
         short.like_count = short.like_count_calculated
         short.save(update_fields=['like_count'])
+        
+        # Recalculate rewards if they've been calculated before
+        if short.reward_calculated_at:
+            short.calculate_main_reward_score()
+            short.calculate_ai_bonus_percentage()
+            short.calculate_final_reward_score()
+            short.save()
+            logger.info(f"Recalculated complete rewards for Short {short.id} after like deletion")
+            
         logger.debug(f"Updated like_count for Short {short.id} after like delete")
     except Exception as e:
         logger.error(f"Error updating like_count after like delete: {e}")
@@ -181,3 +202,54 @@ def update_wallet_on_transaction_delete(sender, instance, **kwargs):
         
     except Exception as e:
         logger.error(f"Error updating wallet after transaction delete: {e}")
+
+
+@receiver(post_save, sender=View)
+def update_watch_percentage_on_view_save(sender, instance, created, **kwargs):
+    """
+    Update cached average_watch_percentage when a View is created or updated and recalculate rewards
+    """
+    try:
+        short = instance.short
+        
+        # Update cached average watch percentage
+        short.update_cached_counts()
+        
+        # Recalculate rewards if they've been calculated before
+        if short.reward_calculated_at:
+            short.calculate_main_reward_score()
+            short.calculate_ai_bonus_percentage()
+            short.calculate_final_reward_score()
+            short.save()
+            logger.info(f"Recalculated complete rewards for Short {short.id} after view update")
+        else:
+            # Try auto-calculation if this is the first time
+            short.auto_calculate_rewards_if_ready()
+            
+        logger.debug(f"Updated average_watch_percentage for Short {short.id} after view save")
+    except Exception as e:
+        logger.error(f"Error updating average_watch_percentage after view save: {e}")
+
+
+@receiver(post_delete, sender=View)
+def update_watch_percentage_on_view_delete(sender, instance, **kwargs):
+    """
+    Update cached average_watch_percentage when a View is deleted and recalculate rewards
+    """
+    try:
+        short = instance.short
+        
+        # Update cached average watch percentage
+        short.update_cached_counts()
+        
+        # Recalculate rewards if they've been calculated before
+        if short.reward_calculated_at:
+            short.calculate_main_reward_score()
+            short.calculate_ai_bonus_percentage()
+            short.calculate_final_reward_score()
+            short.save()
+            logger.info(f"Recalculated complete rewards for Short {short.id} after view deletion")
+            
+        logger.debug(f"Updated average_watch_percentage for Short {short.id} after view delete")
+    except Exception as e:
+        logger.error(f"Error updating average_watch_percentage after view delete: {e}")

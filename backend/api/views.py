@@ -591,19 +591,28 @@ def track_view(request, short_id):
             view_count=F('view_count') + 1
         )
         
-        # Get the updated count and recalculate rewards
+        # Get the updated count and recalculate complete rewards
         short.refresh_from_db()
         
-        # Calculate and update the reward score
-        short.main_reward_score = short.calculate_main_reward_score()
-        short.save(update_fields=['main_reward_score'])
+        # Trigger complete reward recalculation if rewards have been calculated before
+        if short.reward_calculated_at:
+            # Recalculate all reward components
+            short.calculate_main_reward_score()
+            short.calculate_ai_bonus_percentage()
+            short.calculate_final_reward_score()
+            short.save()
+            logger.info(f"Recalculated complete rewards for Short {short.id} after view increment")
+        else:
+            # Try auto-calculation if this is the first time
+            short.auto_calculate_rewards_if_ready()
         
         print(f"DEBUG: View incremented for short {short_id}. New view count: {short.view_count}")
         
         return Response({
             'status': 'success',
             'view_count': short.view_count,
-            'main_reward_score': short.main_reward_score
+            'main_reward_score': short.main_reward_score,
+            'final_reward_score': short.final_reward_score
         })
         
     except Exception as e:
@@ -743,6 +752,50 @@ def get_user_watch_history(request):
         return Response({
             'status': 'error',
             'message': f'Failed to get watch history: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def recalculate_short_rewards(request, short_id):
+    """Admin endpoint to manually recalculate rewards for a specific short"""
+    try:
+        short = get_object_or_404(Short, id=short_id, is_active=True)
+        
+        # Store original values for comparison
+        original_main = short.main_reward_score
+        original_final = short.final_reward_score
+        original_avg_watch = short.average_watch_percentage
+        
+        # Recalculate all rewards
+        short.recalculate_all_rewards()
+        
+        # Return comparison
+        return Response({
+            'status': 'success',
+            'message': 'Rewards recalculated successfully',
+            'short_id': str(short.id),
+            'changes': {
+                'average_watch_percentage': {
+                    'before': round(original_avg_watch or 0, 2),
+                    'after': round(short.average_watch_percentage or 0, 2)
+                },
+                'main_reward_score': {
+                    'before': round(original_main or 0, 2),
+                    'after': round(short.main_reward_score or 0, 2)
+                },
+                'final_reward_score': {
+                    'before': round(original_final or 0, 2),
+                    'after': round(short.final_reward_score or 0, 2)
+                }
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error recalculating rewards for short {short_id}: {e}")
+        return Response({
+            'status': 'error',
+            'message': f'Failed to recalculate rewards: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
 

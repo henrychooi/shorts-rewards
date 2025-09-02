@@ -5,7 +5,10 @@ import uuid
 import os
 import hashlib
 import json
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 class Short(models.Model):
@@ -186,8 +189,8 @@ class Short(models.Model):
         return self.views.values('user', 'ip_address').distinct().count()
 
     @property
-    def average_watch_percentage(self):
-        """Average watch percentage across all views"""
+    def calculated_average_watch_percentage(self):
+        """Average watch percentage across all views (calculated dynamically)"""
         views = self.views.all()
         if not views:
             return 0
@@ -398,6 +401,37 @@ class Short(models.Model):
             
             return True
         return False
+
+    def recalculate_all_rewards(self):
+        """
+        Force recalculation of all rewards and cached values
+        This method should be used when fixing data inconsistencies
+        """
+        logger.info(f"Starting complete reward recalculation for Short {self.id}")
+        
+        # Update all cached counts first
+        self.update_cached_counts()
+        
+        # Recalculate all reward components
+        self.calculate_main_reward_score()
+        self.calculate_ai_bonus_percentage()
+        
+        # Check moderation flag if comment analysis is available
+        if self.comment_analysis_score is not None:
+            self.check_and_update_moderation_flag()
+        
+        # Calculate final reward
+        self.calculate_final_reward_score()
+        
+        # Update timestamp
+        from django.utils import timezone
+        self.reward_calculated_at = timezone.now()
+        
+        # Save all changes
+        self.save()
+        
+        logger.info(f"Completed reward recalculation for Short {self.id}: main={self.main_reward_score}, final={self.final_reward_score}")
+        return True
 
     def calculate_automatic_moderation_flag(self):
         """

@@ -9,7 +9,7 @@ from api.views import (
     user_shorts, user_profile, wallet_detail, wallet_transactions,
     verify_transaction, audit_log, wallet_integrity_report,
     track_watch_progress, get_video_analytics, get_user_watch_history, process_all_videos_audio, process_single_video_audio,
-    get_audio_quality_report, list_videos, process_videos_traditional,
+    get_audio_quality_report, list_videos, process_videos_traditional, recalculate_short_rewards,
     # Comment Analysis endpoints (API only)
     analyze_comment, analyze_comments_for_short, batch_analyze_comments,
     get_comment_sentiment_summary, analyze_text_sentiment,
@@ -42,6 +42,7 @@ urlpatterns = [
     path("api/shorts/<uuid:short_id>/view/", track_view, name="track-view"),
     path("api/shorts/<uuid:short_id>/watch-progress/", track_watch_progress, name="track-watch-progress"),
     path("api/shorts/<uuid:short_id>/analytics/", get_video_analytics, name="video-analytics"),
+    path("api/admin/shorts/<uuid:short_id>/recalculate-rewards/", recalculate_short_rewards, name="recalculate-short-rewards"),
     path("api/my-shorts/", user_shorts, name="user-shorts"),
     path("api/profile/<str:username>/", user_profile, name="user-profile"),
     path("api/watch-history/", get_user_watch_history, name="user-watch-history"),

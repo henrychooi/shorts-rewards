@@ -5,6 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 from .models import Comment, Short
 from transformers import pipeline
+import torch
 
 logger = logging.getLogger(__name__)
 
@@ -18,22 +19,112 @@ class CommentAnalysisService:
     def __init__(self, model_name: str = "cardiffnlp/twitter-roberta-base-sentiment"):
         self.model_name = model_name
         self.pipeline = None
-        self._load_pipeline()
+        self.is_available = False
+        try:
+            self._load_pipeline()
+            self.is_available = True
+        except Exception as e:
+            logger.error(f"Failed to initialize CommentAnalysisService: {e}")
+            logger.warning("Comment analysis will be disabled")
+            self.is_available = False
 
     def _load_pipeline(self):
         """Load the sentiment analysis pipeline if not already loaded"""
         if self.pipeline is None:
             try:
                 logger.info(f"Loading sentiment analysis pipeline: {self.model_name}")
-                self.pipeline = pipeline(
-                    "sentiment-analysis",
-                    model=self.model_name,
-                    return_all_scores=True,
-                    device=-1  # Use CPU
-                )
-                logger.info("Sentiment analysis pipeline loaded successfully")
+                
+                # Set environment variable to force CPU usage and avoid meta device issues
+                import os
+                os.environ['CUDA_VISIBLE_DEVICES'] = ''
+                
+                logger.info("Forcing CPU device to avoid meta device issues")
+                
+                # Try the most basic initialization without any device specification
+                try:
+                    # Method 1: Simplest initialization - let transformers handle device
+                    logger.info("Attempting basic initialization...")
+                    self.pipeline = pipeline(
+                        "sentiment-analysis",
+                        model=self.model_name,
+                        return_all_scores=True
+                    )
+                    logger.info("Basic initialization successful")
+                    
+                except Exception as e1:
+                    logger.warning(f"Basic initialization failed: {e1}")
+                    
+                    try:
+                        # Method 2: Force low CPU memory usage
+                        logger.info("Attempting low memory initialization...")
+                        self.pipeline = pipeline(
+                            "sentiment-analysis",
+                            model=self.model_name,
+                            return_all_scores=True,
+                            model_kwargs={
+                                "torch_dtype": torch.float32,
+                                "low_cpu_mem_usage": True
+                            }
+                        )
+                        logger.info("Low memory initialization successful")
+                        
+                    except Exception as e2:
+                        logger.warning(f"Low memory initialization failed: {e2}")
+                        
+                        try:
+                            # Method 3: Manual model loading with explicit CPU placement
+                            logger.info("Attempting manual model loading...")
+                            from transformers import AutoTokenizer, AutoModelForSequenceClassification
+                            
+                            tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+                            model = AutoModelForSequenceClassification.from_pretrained(
+                                self.model_name,
+                                torch_dtype=torch.float32,
+                                low_cpu_mem_usage=True
+                            )
+                            
+                            # Ensure model is on CPU
+                            model = model.cpu()
+                            
+                            # Create pipeline manually
+                            self.pipeline = pipeline(
+                                "sentiment-analysis",
+                                model=model,
+                                tokenizer=tokenizer,
+                                return_all_scores=True,
+                                device=-1  # Force CPU
+                            )
+                            logger.info("Manual model loading successful")
+                            
+                        except Exception as e3:
+                            logger.error(f"All initialization methods failed. Last error: {e3}")
+                            raise Exception(f"Could not initialize sentiment analysis pipeline after trying multiple methods. Final error: {e3}")
+                
+                # Verify the model is working
+                if self.pipeline is not None:
+                    try:
+                        # Test with a simple phrase
+                        test_result = self.pipeline("This is a test")
+                        logger.info("Pipeline test successful")
+                        
+                        # Log device information if available
+                        if hasattr(self.pipeline, 'model') and hasattr(self.pipeline.model, 'parameters'):
+                            try:
+                                model_device = next(self.pipeline.model.parameters()).device
+                                logger.info(f"Model loaded on device: {model_device}")
+                            except Exception:
+                                logger.info("Could not determine model device, but pipeline is working")
+                                
+                    except Exception as test_error:
+                        logger.error(f"Pipeline test failed: {test_error}")
+                        self.pipeline = None
+                        raise Exception(f"Pipeline loaded but failed test: {test_error}")
+                
+                logger.info("Sentiment analysis pipeline loaded and tested successfully")
+                
             except Exception as e:
                 logger.error(f"Failed to load sentiment analysis pipeline: {str(e)}")
+                self.pipeline = None
                 raise
 
     def analyze_comment(self, comment_text: str) -> Dict[str, Any]:
@@ -46,6 +137,14 @@ class CommentAnalysisService:
         Returns:
             Dict containing score, label, and raw results
         """
+        if not self.is_available:
+            return {
+                'sentiment_score': None,
+                'sentiment_label': 'neutral',
+                'raw_scores': None,
+                'error': 'Comment analysis service not available'
+            }
+            
         if not comment_text or not comment_text.strip():
             return {
                 'sentiment_score': None,
@@ -56,7 +155,22 @@ class CommentAnalysisService:
 
         try:
             if self.pipeline is None:
+                if not self.is_available:
+                    return {
+                        'sentiment_score': None,
+                        'sentiment_label': 'neutral',
+                        'raw_scores': None,
+                        'error': 'Pipeline not available'
+                    }
                 self._load_pipeline()
+
+            # Additional check for meta device issues
+            if hasattr(self.pipeline.model, 'parameters'):
+                model_device = next(self.pipeline.model.parameters()).device
+                if str(model_device) == 'meta':
+                    logger.warning("Meta device detected, reinitializing pipeline")
+                    self.pipeline = None
+                    self._load_pipeline()
 
             # Perform sentiment analysis
             results = self.pipeline(comment_text.strip())
@@ -93,12 +207,71 @@ class CommentAnalysisService:
 
         except Exception as e:
             logger.error(f"Error analyzing comment: {str(e)}")
+            
+            # Try fallback sentiment analysis
+            logger.info("Attempting fallback sentiment analysis...")
+            try:
+                fallback_result = self._fallback_sentiment_analysis(comment_text.strip())
+                logger.info("Fallback sentiment analysis successful")
+                return fallback_result
+            except Exception as fallback_error:
+                logger.error(f"Fallback sentiment analysis also failed: {fallback_error}")
+            
             return {
                 'sentiment_score': None,
-                'sentiment_label': None,
+                'sentiment_label': 'neutral',
                 'raw_scores': None,
                 'error': str(e)
             }
+
+    def _fallback_sentiment_analysis(self, text: str) -> Dict[str, Any]:
+        """
+        Simple lexicon-based sentiment analysis as fallback when transformers fail
+        """
+        # Simple positive/negative word lists
+        positive_words = {
+            'good', 'great', 'awesome', 'amazing', 'excellent', 'fantastic', 'wonderful',
+            'love', 'like', 'best', 'perfect', 'brilliant', 'outstanding', 'superb',
+            'nice', 'beautiful', 'incredible', 'marvelous', 'spectacular', 'magnificent',
+            'cool', 'fun', 'happy', 'joy', 'pleased', 'delighted', 'impressed', 'wow',
+            'yes', 'definitely', 'absolutely', 'totally', '👍', '❤️', '😍', '🔥'
+        }
+        
+        negative_words = {
+            'bad', 'terrible', 'awful', 'horrible', 'worst', 'hate', 'dislike',
+            'stupid', 'dumb', 'boring', 'waste', 'sucks', 'annoying', 'frustrating',
+            'disappointing', 'pathetic', 'ridiculous', 'useless', 'garbage', 'trash',
+            'no', 'never', 'not', 'nothing', 'nobody', 'nowhere', '👎', '😠', '😡'
+        }
+        
+        # Convert to lowercase and split into words
+        words = text.lower().split()
+        
+        positive_count = sum(1 for word in words if word in positive_words)
+        negative_count = sum(1 for word in words if word in negative_words)
+        total_words = len(words)
+        
+        if total_words == 0:
+            sentiment_score = 0.0
+        else:
+            # Calculate score based on ratio of positive/negative words
+            sentiment_score = (positive_count - negative_count) / max(total_words, 1)
+            # Normalize to -1 to 1 range
+            sentiment_score = max(-1.0, min(1.0, sentiment_score * 3))  # Amplify by 3 for better sensitivity
+        
+        sentiment_label = self._get_sentiment_label(sentiment_score)
+        
+        return {
+            'sentiment_score': sentiment_score,
+            'sentiment_label': sentiment_label,
+            'raw_scores': {
+                'positive_words': positive_count,
+                'negative_words': negative_count,
+                'total_words': total_words
+            },
+            'error': None,
+            'fallback_used': True
+        }
 
     def _calculate_sentiment_score(self, p_pos: float, p_neu: float, p_neg: float) -> float:
         """
