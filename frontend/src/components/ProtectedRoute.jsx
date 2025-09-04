@@ -36,14 +36,22 @@ function ProtectedRoute({ children }) {
       return;
     }
 
-    const decoded = jwtDecode(token);
-    const tokenExpiration = decoded.exp;
-    const now = Date.now() / 1000;
+    try {
+      const decoded = jwtDecode(token);
+      const tokenExpiration = decoded?.exp;
+      const now = Date.now() / 1000;
+      const skew = 30; // seconds
 
-    if (tokenExpiration) {
-      await refreshToken();
-    } else {
-      setIsAuthorised(true);
+      if (tokenExpiration && tokenExpiration <= now + skew) {
+        // Token expired or about to expire: try refresh
+        await refreshToken();
+      } else {
+        // Token is still valid
+        setIsAuthorised(true);
+      }
+    } catch (e) {
+      // Invalid token
+      setIsAuthorised(false);
     }
   };
 

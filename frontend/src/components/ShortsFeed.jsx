@@ -302,18 +302,32 @@ const ShortsFeed = ({ onProfileClick }) => {
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        {shorts.map((short, index) => (
-          <div key={short.id} className="modern-short-item">
-            <VideoPlayer
-              short={{
-                ...short,
-                view_count: viewCounts[short.id] || short.view_count
-              }}
-              isActive={index === currentIndex}
-              onProfileClick={onProfileClick}
-            />
-          </div>
-        ))}
+        {shorts.map((short, index) => {
+          const isActive = index === currentIndex;
+          const inWindow = Math.abs(index - currentIndex) <= 1; // render only current and neighbors
+          return (
+            <div key={short.id} className="modern-short-item">
+              {inWindow ? (
+                <VideoPlayer
+                  short={{
+                    ...short,
+                    view_count: viewCounts[short.id] || short.view_count,
+                  }}
+                  isActive={isActive}
+                  onProfileClick={onProfileClick}
+                />
+              ) : (
+                <div className="grid-video-placeholder">
+                  <div className="grid-play-btn">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="white">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Navigation controls */}

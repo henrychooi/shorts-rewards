@@ -11,7 +11,6 @@ class UserSerializer(serializers.ModelSerializer):
         extra_kwargs = {"password": {"write_only": True}}
 
     def create(self, validated_data):
-        print(validated_data)
         user = User.objects.create_user(**validated_data)
         return user
 
@@ -76,6 +75,27 @@ class ShortSerializer(serializers.ModelSerializer):
             return Like.objects.filter(user=user, short=obj).exists()
         return False
 
+
+class ShortListSerializer(serializers.ModelSerializer):
+    author = UserProfileSerializer(read_only=True)
+    like_count = serializers.ReadOnlyField()
+    comment_count = serializers.ReadOnlyField()
+    is_liked = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Short
+        fields = [
+            "id", "title", "description", "video", "thumbnail", "author",
+            "created_at", "view_count", "duration", "like_count", "comment_count",
+            "is_liked"
+        ]
+        extra_kwargs = {"author": {"read_only": True}}
+
+    def get_is_liked(self, obj):
+        user = self.context.get('request').user
+        if user and user.is_authenticated:
+            return Like.objects.filter(user=user, short=obj).exists()
+        return False
 
 class ShortCreateSerializer(serializers.ModelSerializer):
     class Meta:
