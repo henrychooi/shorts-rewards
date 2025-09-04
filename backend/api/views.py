@@ -35,11 +35,22 @@ logger = logging.getLogger(__name__)
 
 
 class ShortsListView(generics.ListAPIView):
-    serializer_class = ShortSerializer
+    from .serializers import ShortListSerializer
+    serializer_class = ShortListSerializer
     permission_classes = [AllowAny]
     
     def get_queryset(self):
-        return Short.objects.filter(is_active=True).select_related('author').prefetch_related('likes', 'comments')
+        # Use a lean queryset; avoid eager-loading comments for list view
+        return (
+            Short.objects
+            .filter(is_active=True)
+            .select_related('author')
+            .prefetch_related('likes')
+            .only(
+                'id','title','description','video','thumbnail','author','created_at',
+                'view_count','like_count','comment_count','duration','is_active'
+            )
+        )
 
 
 class ShortCreateView(generics.CreateAPIView):

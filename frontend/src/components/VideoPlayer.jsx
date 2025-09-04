@@ -51,10 +51,10 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
         }, 10); // Track after 0.1 seconds
       }
 
-      // Start progress tracking timer
+      // Start progress tracking timer (throttled)
       progressTrackingTimer.current = setInterval(() => {
         trackWatchProgress();
-      }, 2000); // Track progress every 2 seconds
+      }, 3000); // Track progress every 3 seconds to reduce load
     } else if (videoRef.current) {
       videoRef.current.pause();
       setIsPlaying(false);
@@ -123,6 +123,8 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
     }
   };
 
+  const lastSentRef = useRef({ time: 0, position: 0 });
+
   const trackWatchProgress = async () => {
     if (!videoRef.current) return;
 
@@ -160,6 +162,11 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
         is_rewatch: isRewatch,
       };
 
+      // Only send if position changed by > 0.5s since last send
+      if (Math.abs(currentTime - lastSentRef.current.position) < 0.5) {
+        return;
+      }
+
       const response = await shortsApi.trackWatchProgress(
         short.id,
         progressData
@@ -177,6 +184,7 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
       }
 
       lastTrackedPosition.current = currentTime;
+      lastSentRef.current = { time: Date.now() / 1000, position: currentTime };
     } catch (error) {
       console.error("Error tracking watch progress:", error);
     }

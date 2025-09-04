@@ -13,7 +13,8 @@
   position: relative;
   width: 100%;
   height: 100%;
-  max-width: 400px;
+  max-width: 420px;
+  margin: 0 auto;
 }
 
 .video-player {
@@ -59,7 +60,7 @@
 
 .video-info {
   position: absolute;
-  bottom: 20px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0));
   left: 0;
   right: 70px; /* Leave space for right-aligned action buttons */
   padding: 12px 12px 10px 12px; /* Lighter padding for a more minimal look */
@@ -227,7 +228,7 @@
 .action-buttons {
   position: absolute;
   right: 12px; /* Align to right edge of the video */
-  bottom: 120px; /* Keep above video info */
+  bottom: calc(100px + env(safe-area-inset-bottom, 0)); /* Keep above video info */
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -447,14 +448,14 @@
 /* Mobile responsiveness */
 @media (max-width: 768px) {
   .video-info {
-    bottom: 60px;
+    bottom: calc(48px + env(safe-area-inset-bottom, 0));
     left: 16px;
     right: 70px; /* Maintain space for buttons on mobile */
   }
 
   .action-buttons {
     right: 12px; /* Align to right on mobile too */
-    bottom: 100px;
+    bottom: calc(88px + env(safe-area-inset-bottom, 0));
     gap: 12px;
   }
 
@@ -470,6 +471,46 @@
 
   .comments-overlay {
     max-height: 80vh;
+  }
+}
+
+/* Extra small devices: tighten spacing and hide description */
+@media (max-width: 380px) {
+  .video-title {
+    font-size: 14px;
+  }
+  .video-description {
+    display: none;
+  }
+  .username {
+    font-size: 14px;
+  }
+  .timestamp {
+    font-size: 10px;
+  }
+}
+
+/* Short viewports (landscape phones) */
+@media (max-height: 700px) {
+  .action-buttons {
+    bottom: calc(60px + env(safe-area-inset-bottom, 0));
+    gap: 12px;
+  }
+  .video-info {
+    bottom: calc(32px + env(safe-area-inset-bottom, 0));
+    padding: 10px;
+  }
+}
+
+/* Landscape-specific tweaks */
+@media (orientation: landscape) and (max-height: 500px) {
+  .action-buttons {
+    bottom: calc(24px + env(safe-area-inset-bottom, 0));
+    right: calc(12px + env(safe-area-inset-right, 0));
+  }
+  .video-info {
+    bottom: calc(16px + env(safe-area-inset-bottom, 0));
+    right: 60px;
   }
 }
 
