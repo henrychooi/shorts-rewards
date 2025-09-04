@@ -226,8 +226,8 @@
 
 .action-buttons {
   position: absolute;
-  right: 80px; /* Moved further left to avoid overlap with navigation arrows */
-  bottom: 180px;
+  right: 12px; /* Align to right edge of the video */
+  bottom: 120px; /* Keep above video info */
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -453,8 +453,8 @@
   }
 
   .action-buttons {
-    right: 70px; /* Increased from 16px to avoid overlap with navigation arrows */
-    bottom: 120px;
+    right: 12px; /* Align to right on mobile too */
+    bottom: 100px;
     gap: 12px;
   }
 
