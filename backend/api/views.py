@@ -645,10 +645,18 @@ def track_watch_progress(request, short_id):
         
         # Get or create view record - but check for existing views across all sessions
         # First, check if user has watched this video before (in any session)
-        existing_views = View.objects.filter(
-            user=request.user if request.user.is_authenticated else None,
-            short=short
-        ).exclude(session_id=session_id) if request.user.is_authenticated else []
+        if request.user.is_authenticated:
+            existing_views = View.objects.filter(
+                user=request.user,
+                short=short
+            ).exclude(session_id=session_id)
+        else:
+            # For anonymous users, approximate uniqueness by IP
+            existing_views = View.objects.filter(
+                user__isnull=True,
+                short=short,
+                ip_address=ip_address
+            ).exclude(session_id=session_id)
         
         # Get or create view record for current session
         view_record, created = View.objects.get_or_create(
@@ -1588,152 +1596,17 @@ def video_analysis_report(request):
     except Exception as e:
         logger.error(f"Error generating video analysis report: {e}")
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     """
-    Analyze a single video by Short ID
-    """
-    try:
-        short_id = request.data.get('short_id')
-        force_reanalysis = request.data.get('force_reanalysis', False)
-        
-        if not short_id:
-            return Response(
-                {"error": "short_id is required"}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Get the short
-        try:
-            short = Short.objects.get(id=short_id)
-        except Short.DoesNotExist:
-            return Response(
-                {"error": "Short not found"}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Check if user owns the video or is admin
-        if short.author != request.user and not request.user.is_staff:
-            return Response(
-                {"error": "Permission denied"}, 
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        # Check if video file exists
-        if not short.video_exists():
-            return Response(
-                {"error": "Video file not found"}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Check if already analyzed (unless force reanalysis)
-        if (short.video_analysis_status == 'completed' and 
-            short.video_quality_score is not None and 
-            not force_reanalysis):
-            return Response({
-                "message": "Video already analyzed",
-                "analysis": {
-                    "video_quality_score": short.video_quality_score,
-                    "engagement_score": short.engagement_score,
-                    "technical_score": short.technical_score,
-                    "grade": short.get_quality_grade(),
-                    "summary": short.video_analysis_summary,
-                    "processed_at": short.video_processed_at
-                }
-            })
-        
-        # Initialize analysis service
-        video_service = VideoAnalysisService()
-        
-        # Create analysis log
-        analysis_log = VideoAnalysisLog.objects.create(
-            short=short,
-            analysis_type='reanalysis' if force_reanalysis else 'manual',
-            file_size_mb=os.path.getsize(short.video.path) / (1024 * 1024)
-        )
-        
-        # Update status to processing
-        short.video_analysis_status = 'processing'
-        short.save(update_fields=['video_analysis_status'])
-        
-        try:
-            # Process the video
-            analysis_result = video_service.process_single_video(short.video.path)
-            
-            if 'error' in analysis_result:
-                # Log failure
-                analysis_log.mark_completed(
-                    success=False,
-                    error_message=analysis_result['error'],
-                    result=analysis_result
-                )
-                
-                # Update short with error
-                short.update_video_analysis(analysis_result)
-                
-                return Response(
-                    {"error": analysis_result['error']},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-            
-            # Success - update the Short model
-            short.update_video_analysis(analysis_result)
-            
-            # Log success
-            analysis_log.mark_completed(
-                success=True,
-                result=analysis_result
-            )
-            
-            return Response({
-                "success": True,
-                "message": "Video analysis completed successfully",
-                "analysis": {
-                    "video_quality_score": short.video_quality_score,
-                    "content_quality_score": short.content_quality_score,
-                    "engagement_score": short.engagement_score,
-                    "technical_score": short.technical_score,
-                    "viral_potential": short.viral_potential,
-                    "mobile_optimization": short.mobile_optimization,
-                    "comprehensive_score": short.get_comprehensive_quality_score(),
-                    "grade": short.get_quality_grade(),
-                    "summary": short.video_analysis_summary,
-                    "category": short.content_category,
-                    "strengths": short.analysis_strengths,
-                    "weaknesses": short.analysis_weaknesses,
-                    "recommendations": short.analysis_recommendations,
-                    "technical_metrics": short.technical_metrics,
-                    "processed_at": short.video_processed_at
-                }
-            })
-            
-        except Exception as e:
-            error_msg = f"Analysis failed: {str(e)}"
-            
-            # Log failure
-            analysis_log.mark_completed(
-                success=False,
-                error_message=error_msg
-            )
-            
-            # Update short status
-            short.video_analysis_status = 'failed'
-            short.video_analysis_error = error_msg
-            short.save(update_fields=['video_analysis_status', 'video_analysis_error'])
-            
-            return Response(
-                {"error": error_msg},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-    
-    except Exception as e:
-        return Response(
-            {"error": f"Unexpected error: {str(e)}"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    Legacy duplicate analyze_single_video block removed to avoid overriding the valid implementation.
+    pass
 
 
+# Removed legacy duplicate admin-only batch_analyze_videos to avoid overriding the valid implementation
+"""
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
-def batch_analyze_videos(request):
+def batch_analyze_videos_legacy(request):
     """
     Admin endpoint to analyze multiple videos in batch
     """
@@ -1841,24 +1714,15 @@ def batch_analyze_videos(request):
                     "error": error_msg
                 })
         
-        return Response({
-            "success": True,
-            "message": f"Batch analysis completed. {successful_count}/{len(results)} videos processed successfully.",
-            "processed_count": len(results),
-            "successful_count": successful_count,
-            "results": results
-        })
-        
-    except Exception as e:
-        return Response(
-            {"error": f"Batch analysis failed: {str(e)}"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return Response({})
+"""
 
 
+# Removed legacy duplicate admin-only video_analysis_report referencing undefined fields
+"""
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
-def video_analysis_report(request):
+def video_analysis_report_admin_legacy(request):
     """
     Generate comprehensive video analysis report
     """
@@ -1982,72 +1846,17 @@ def video_analysis_report(request):
         })
         
     except Exception as e:
-        logger.error(f"Error generating video analysis report: {str(e)}")
-        return Response(
-            {"error": f"Report generation failed: {str(e)}"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return Response({})
+"""
 
 
+"""
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_video_analysis(request, short_id):
-    """
-    Get analysis results for a specific video
-    """
-    try:
-        short = Short.objects.get(id=short_id)
-        
-        # Check permissions
-        if short.author != request.user and not request.user.is_staff:
-            return Response(
-                {"error": "Permission denied"}, 
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        if short.video_analysis_status != 'completed':
-            return Response({
-                "status": short.video_analysis_status,
-                "message": f"Analysis status: {short.get_video_analysis_status_display()}",
-                "error": short.video_analysis_error
-            })
-        
-        return Response({
-            "success": True,
-            "analysis": {
-                "scores": {
-                    "overall_quality": short.video_quality_score,
-                    "content_quality": short.content_quality_score,
-                    "engagement": short.engagement_score,
-                    "technical": short.technical_score,
-                    "viral_potential": short.viral_potential,
-                    "mobile_optimization": short.mobile_optimization,
-                    "comprehensive": short.get_comprehensive_quality_score()
-                },
-                "grade": short.get_quality_grade(),
-                "summary": short.video_analysis_summary,
-                "category": short.content_category,
-                "feedback": {
-                    "strengths": short.analysis_strengths,
-                    "weaknesses": short.analysis_weaknesses,
-                    "recommendations": short.analysis_recommendations
-                },
-                "technical_details": short.technical_metrics,
-                "processed_at": short.video_processed_at,
-                "status": short.video_analysis_status
-            }
-        })
-        
-    except Short.DoesNotExist:
-        return Response(
-            {"error": "Short not found"}, 
-            status=status.HTTP_404_NOT_FOUND
-        )
-    except Exception as e:
-        return Response(
-            {"error": f"Error retrieving analysis: {str(e)}"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    # Removed legacy duplicate get_video_analysis that referenced undefined fields/methods
+    pass
+"""
 
 
 @api_view(['POST'])
