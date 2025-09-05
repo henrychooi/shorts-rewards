@@ -2262,6 +2262,53 @@ def test_monthly_revenue_share(request):
 
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
+def test_5min_payout(request):
+    """
+    TEST ENDPOINT: Trigger 5-minute payout distribution.
+    Body: {"platform_revenue": 1000, "dry_run": true}
+    """
+    try:
+        platform_revenue = Decimal(str(request.data.get('platform_revenue', 1000)))
+        dry_run = request.data.get('dry_run', True)
+
+        result = monthly_revenue_service.test_5minute_payout(
+            platform_revenue=platform_revenue,
+            dry_run=dry_run
+        )
+
+        return Response(result)
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def test_3min_payout(request):
+    """
+    TEST ENDPOINT: Trigger 3-minute payout distribution.
+    Body: {"platform_revenue": 1000, "dry_run": true}
+    """
+    try:
+        platform_revenue = Decimal(str(request.data.get('platform_revenue', 1000)))
+        dry_run = request.data.get('dry_run', True)
+
+        result = monthly_revenue_service.test_3minute_payout(
+            platform_revenue=platform_revenue,
+            dry_run=dry_run
+        )
+
+        return Response(result)
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
 def create_test_shorts(request):
     """
     TEST ENDPOINT: Create test shorts for a specific month to test revenue sharing.

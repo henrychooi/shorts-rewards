@@ -189,6 +189,25 @@ frontend/
 - `GET /api/wallet/transactions/` - Transaction history
 - `POST /api/wallet/withdraw/` - Withdraw funds
 
+## 🧪 Quick Demo: Monthly Payouts
+
+You can demo creator payouts end-to-end without waiting a full month.
+
+- Create recent test data (3 creators, multiple shorts each):
+  - `python manage.py create_simple_test_data --recent`
+- Dry run 5‑minute payout (average points per video, 50% creator pool):
+  - `python manage.py test_5min_payout --revenue 5000`
+- Real 5‑minute payout (credits wallets, creates transactions):
+  - `python manage.py test_5min_payout --revenue 5000 --real`
+- View balances and withdraw in the app:
+  - Open the Wallet modal in the UI, or call `GET /api/wallet/` and `POST /api/wallet/withdraw/`
+
+Admin API endpoints are also available for testing:
+
+- `POST /api/admin/revenue-share/test-5min/` with body `{ "platform_revenue": 5000, "dry_run": true }`
+- `POST /api/admin/revenue-share/test-3min/` with body `{ "platform_revenue": 5000, "dry_run": true }`
+- `POST /api/admin/revenue-share/calculate/` and `/process-payouts/` for full monthly runs
+
 ## 🔧 Key Management Commands
 
 ### Revenue & Rewards
