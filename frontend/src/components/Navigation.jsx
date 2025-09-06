@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import "./Navigation.css";
+import ThemeToggle from "./ThemeToggle";
 
 const Navigation = ({
   onCreateShort,
@@ -194,6 +195,7 @@ const Navigation = ({
                 </button>
               </div>
             </div>
+            <ThemeToggle />
           </div>
         </div>
       </header>

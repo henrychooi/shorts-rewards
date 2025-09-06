@@ -3,9 +3,9 @@
   top: 0;
   left: 0;
   right: 0;
-  background: rgba(0, 0, 0, 0.9);
+  background: var(--surface);
   backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--border-color);
   z-index: 100;
   display: none;
 }
@@ -23,7 +23,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  color: white;
+  color: var(--text);
   font-size: 20px;
   font-weight: 700;
 }
@@ -80,7 +80,7 @@
   position: absolute;
   top: 100%;
   right: 0;
-  background: white;
+  background: var(--surface-strong);
   border-radius: 12px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
   min-width: 200px;
@@ -100,13 +100,13 @@
 
 .user-info {
   padding: 16px;
-  border-bottom: 1px solid #f0f0f0;
-  background: #f8f9fa;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--overlay);
 }
 
 .username {
   font-weight: 600;
-  color: #333;
+  color: var(--text);
 }
 
 .dropdown-item {
@@ -118,14 +118,14 @@
   background: none;
   border: none;
   text-align: left;
-  color: #333;
+  color: var(--text);
   cursor: pointer;
   transition: background 0.3s ease;
   font-size: 14px;
 }
 
 .dropdown-item:hover {
-  background: #f8f9fa;
+  background: var(--overlay);
 }
 
 .dropdown-item.logout {
@@ -141,9 +141,9 @@
   bottom: 0;
   left: 0;
   right: 0;
-  background: rgba(0, 0, 0, 0.95);
+  background: var(--surface);
   backdrop-filter: blur(20px);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: space-around;
   padding: 8px 16px 16px;
@@ -158,7 +158,7 @@
   gap: 4px;
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--muted-text);
   cursor: pointer;
   transition: all 0.3s ease;
   padding: 8px 12px;
@@ -167,28 +167,30 @@
 }
 
 .nav-item:hover {
-  color: rgba(255, 255, 255, 0.8);
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  background: var(--overlay);
 }
 
 .nav-item.active {
-  color: white;
-  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  background: var(--overlay-strong);
 }
 
 .nav-item.special {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  position: relative;
+  background: linear-gradient(135deg, #ff5f6d 0%, #ffc371 100%);
   color: white;
   border-radius: 50%;
-  width: 56px;
-  height: 56px;
-  margin-top: -8px;
-  box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+  width: 68px;
+  height: 68px;
+  margin-top: -16px; /* Float it above like TikTok */
+  box-shadow: 0 10px 28px rgba(255, 95, 109, 0.45);
+  border: 4px solid var(--surface);
 }
 
 .nav-item.special:hover {
-  transform: scale(1.05);
-  box-shadow: 0 6px 25px rgba(102, 126, 234, 0.5);
+  transform: scale(1.08);
+  box-shadow: 0 14px 34px rgba(255, 95, 109, 0.55);
 }
 
 .nav-item.special .nav-label {
@@ -233,9 +235,10 @@
   }
 
   .nav-item.special {
-    width: 48px;
-    height: 48px;
-    margin-top: -6px;
+    width: 64px;
+    height: 64px;
+    margin-top: -14px;
+    border-width: 3px;
   }
 
   .nav-label {

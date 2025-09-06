@@ -15,6 +15,7 @@ const Profile = ({ username, onClose }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [deletingShortId, setDeletingShortId] = useState(null);
   const currentUsername = typeof window !== 'undefined' ? localStorage.getItem('username') : null;
   const menuRef = useRef(null);
   const menuBtnRef = useRef(null);
@@ -103,6 +104,7 @@ const Profile = ({ username, onClose }) => {
   };
 
   const canDeleteAccount = username && currentUsername && username === currentUsername;
+  const canModifyShorts = canDeleteAccount;
 
   // Close header dropdown on outside click
   useEffect(() => {
@@ -133,6 +135,22 @@ const Profile = ({ username, onClose }) => {
       alert(err?.response?.data?.error || "Failed to delete account");
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleDeleteShort = async (shortId) => {
+    if (!canModifyShorts) return;
+    const confirmMsg = "Delete this short? This cannot be undone.";
+    if (!window.confirm(confirmMsg)) return;
+    try {
+      setDeletingShortId(shortId);
+      await shortsApi.deleteShort(shortId);
+      setShorts((prev) => prev.filter((s) => s.id !== shortId));
+    } catch (err) {
+      console.error("Failed to delete short", err);
+      alert(err?.response?.data?.detail || "Failed to delete short");
+    } finally {
+      setDeletingShortId(null);
     }
   };
 
@@ -373,6 +391,30 @@ const Profile = ({ username, onClose }) => {
                         {formatCount(short.like_count)}
                       </span>
                     </div>
+                    {canModifyShorts && (
+                      <button
+                        className="delete-short-btn"
+                        title="Delete short"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteShort(short.id);
+                        }}
+                        disabled={deletingShortId === short.id}
+                      >
+                        {deletingShortId === short.id ? (
+                          <span style={{ fontSize: 12 }}>Deleting…</span>
+                        ) : (
+                          <svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                          >
+                            <path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1z" />
+                          </svg>
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
               ))

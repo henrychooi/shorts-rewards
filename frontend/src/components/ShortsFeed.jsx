@@ -11,6 +11,7 @@ const ShortsFeed = ({ onProfileClick }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const containerRef = useRef(null);
+  const currentControlsRef = useRef({ like: null, mute: null, playPause: null });
   const touchStartY = useRef(0);
   const touchEndY = useRef(0);
   const { viewCounts } = useViewCount();
@@ -28,6 +29,12 @@ const ShortsFeed = ({ onProfileClick }) => {
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
         scrollToNext();
+      } else if (e.key.toLowerCase() === "l") {
+        // Like current short
+        currentControlsRef.current.like?.();
+      } else if (e.key.toLowerCase() === "m") {
+        // Mute/unmute current short
+        currentControlsRef.current.mute?.();
       }
     };
 
@@ -302,22 +309,28 @@ const ShortsFeed = ({ onProfileClick }) => {
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        {shorts.map((short, index) => {
-          const isActive = index === currentIndex;
-          const inWindow = Math.abs(index - currentIndex) <= 1; // render only current and neighbors
-          return (
-            <div key={short.id} className="modern-short-item">
-              {inWindow ? (
-                <VideoPlayer
-                  short={{
-                    ...short,
-                    view_count: viewCounts[short.id] || short.view_count,
-                  }}
-                  isActive={isActive}
-                  onProfileClick={onProfileClick}
-                />
-              ) : (
-                <div className="grid-video-placeholder">
+      {shorts.map((short, index) => {
+        const isActive = index === currentIndex;
+        const inWindow = Math.abs(index - currentIndex) <= 1; // render only current and neighbors
+        return (
+          <div key={short.id} className="modern-short-item">
+            {inWindow ? (
+              <VideoPlayer
+                short={{
+                  ...short,
+                  view_count: viewCounts[short.id] || short.view_count,
+                }}
+                isActive={isActive}
+                onProfileClick={onProfileClick}
+                registerControls={(controls) => {
+                  // Only register controls for the active item
+                  if (isActive) {
+                    currentControlsRef.current = controls;
+                  }
+                }}
+              />
+            ) : (
+                <div className="grid-video-placeholder skeleton-shimmer" aria-hidden>
                   <div className="grid-play-btn">
                     <svg width="28" height="28" viewBox="0 0 24 24" fill="white">
                       <path d="M8 5v14l11-7z" />
@@ -325,9 +338,9 @@ const ShortsFeed = ({ onProfileClick }) => {
                   </div>
                 </div>
               )}
-            </div>
-          );
-        })}
+          </div>
+        );
+      })}
       </div>
 
       {/* Navigation controls */}
