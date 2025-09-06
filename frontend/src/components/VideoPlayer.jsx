@@ -4,10 +4,11 @@ import { useViewCount } from "../contexts/ViewCountContext";
 import { useLikeCount } from "../contexts/LikeCountContext";
 import "./VideoPlayer.css";
 
-const VideoPlayer = ({ short, isActive, onProfileClick }) => {
+const VideoPlayer = ({ short, isActive, onProfileClick, registerControls }) => {
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false); // Start with audio enabled
+  const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState("");
@@ -208,7 +209,7 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
   };
 
   const toggleMute = (e) => {
-    e.stopPropagation(); // Prevent triggering play/pause
+    if (e?.stopPropagation) e.stopPropagation(); // Prevent triggering play/pause when from click
     if (!videoRef.current) return;
 
     setIsMuted(!isMuted);
@@ -243,6 +244,18 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
       console.error("Error adding comment:", error);
     }
   };
+
+  // Expose controls to parent for keyboard shortcuts
+  useEffect(() => {
+    if (registerControls) {
+      registerControls({
+        like: () => handleLike(),
+        mute: () => toggleMute(),
+        playPause: () => togglePlay(),
+      });
+    }
+    // Re-register whenever active state changes so parent tracks the active one
+  }, [registerControls, isActive, isLiked, isMuted]);
 
   const loadComments = async () => {
     try {
@@ -284,6 +297,18 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
   return (
     <div className="video-container">
       <div className="video-wrapper">
+        {!isVideoLoaded && (
+          <div className="video-skeleton" aria-hidden>
+            <div className="vs-media skeleton-shimmer" />
+            <div className="vs-meta">
+              <div className="vs-avatar skeleton-shimmer" />
+              <div className="vs-lines">
+                <div className="vs-line skeleton-shimmer" />
+                <div className="vs-line short skeleton-shimmer" />
+              </div>
+            </div>
+          </div>
+        )}
         <video
           ref={videoRef}
           className="video-player"
@@ -300,6 +325,7 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
             if (isActive && videoRef.current) {
               videoRef.current.play().catch(console.error);
             }
+            setIsVideoLoaded(true);
           }}
           onError={(e) => {
             console.error("Video loading error:", e);
