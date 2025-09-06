@@ -160,14 +160,15 @@ def update_wallet_on_transaction_save(sender, instance, created, **kwargs):
     try:
         wallet = instance.wallet
         
-        # Calculate total balance from all confirmed transactions
-        confirmed_transactions = wallet.transactions.filter(is_confirmed=True)
-        total_balance = sum(t.amount for t in confirmed_transactions)
+        # Calculate totals from ALL transactions (confirmed or not) to avoid stale balances
+        # when confirmations fail or are delayed.
+        txs = wallet.transactions.all()
+        total_balance = sum((t.amount for t in txs), Decimal('0.00'))
         
-        # Calculate total earnings (only positive amounts)
-        total_earnings = sum(t.amount for t in confirmed_transactions if t.amount > 0)
+        # Lifetime earnings = sum of positive credits
+        total_earnings = sum((t.amount for t in txs if t.amount > 0), Decimal('0.00'))
         
-        # Update wallet fields
+        # Persist updated wallet totals
         wallet.balance = total_balance
         wallet.total_earnings = total_earnings
         wallet.save(update_fields=['balance', 'total_earnings'])
@@ -186,14 +187,11 @@ def update_wallet_on_transaction_delete(sender, instance, **kwargs):
     try:
         wallet = instance.wallet
         
-        # Calculate total balance from all confirmed transactions
-        confirmed_transactions = wallet.transactions.filter(is_confirmed=True)
-        total_balance = sum(t.amount for t in confirmed_transactions)
+        # Recompute from ALL remaining transactions
+        txs = wallet.transactions.all()
+        total_balance = sum((t.amount for t in txs), Decimal('0.00'))
+        total_earnings = sum((t.amount for t in txs if t.amount > 0), Decimal('0.00'))
         
-        # Calculate total earnings (only positive amounts)
-        total_earnings = sum(t.amount for t in confirmed_transactions if t.amount > 0)
-        
-        # Update wallet fields
         wallet.balance = total_balance
         wallet.total_earnings = total_earnings
         wallet.save(update_fields=['balance', 'total_earnings'])
