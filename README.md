@@ -202,6 +202,10 @@ You can demo creator payouts end-to-end without waiting a full month.
 - View balances and withdraw in the app:
   - Open the Wallet modal in the UI, or call `GET /api/wallet/` and `POST /api/wallet/withdraw/`
 
+One-time repair (recommended)
+
+- `python manage.py fix_wallet_balances`
+
 Admin API endpoints are also available for testing:
 
 - `POST /api/admin/revenue-share/test-5min/` with body `{ "platform_revenue": 5000, "dry_run": true }`

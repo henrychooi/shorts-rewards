@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { shortsApi } from "../services/shortsApi";
 import VideoPlayer from "../components/VideoPlayer";
 import "./Profile.css";
@@ -12,9 +12,12 @@ const Profile = ({ username, onClose }) => {
   const [error, setError] = useState(null);
   const [selectedShort, setSelectedShort] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleting, setDeleting] = useState(false);
   const currentUsername = typeof window !== 'undefined' ? localStorage.getItem('username') : null;
+  const menuRef = useRef(null);
+  const menuBtnRef = useRef(null);
 
   useEffect(() => {
     if (username) {
@@ -101,6 +104,20 @@ const Profile = ({ username, onClose }) => {
 
   const canDeleteAccount = username && currentUsername && username === currentUsername;
 
+  // Close header dropdown on outside click
+  useEffect(() => {
+    const onDocClick = (e) => {
+      if (!showMenu) return;
+      const menuEl = menuRef.current;
+      const btnEl = menuBtnRef.current;
+      if (menuEl && menuEl.contains(e.target)) return;
+      if (btnEl && btnEl.contains(e.target)) return;
+      setShowMenu(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [showMenu]);
+
   const handleDeleteAccount = async () => {
     try {
       setDeleting(true);
@@ -174,16 +191,38 @@ const Profile = ({ username, onClose }) => {
                 <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z" />
               </svg>
             </button>
-            <button className="action-btn">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
-              </svg>
-            </button>
+            <div style={{ position: 'relative' }}>
+              <button className="action-btn" ref={menuBtnRef} onClick={() => setShowMenu((v) => !v)}>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+                </svg>
+              </button>
+              {showMenu && (
+                <div ref={menuRef} style={{ position: 'absolute', top: 36, right: 0, background: '#111', border: '1px solid #333', borderRadius: 8, padding: 8, minWidth: 180, boxShadow: '0 8px 24px rgba(0,0,0,0.4)', zIndex: 5 }}>
+                  <button
+                    className="action-btn"
+                    onClick={() => { setShowMenu(false); /* hook up edit later */ }}
+                    style={{ width: '100%', justifyContent: 'flex-start', padding: '8px 10px', background: 'transparent' }}
+                  >
+                    Edit Profile
+                  </button>
+                  {canDeleteAccount && (
+                    <button
+                      className="action-btn"
+                      onClick={() => { setShowMenu(false); setShowDeleteModal(true); }}
+                      style={{ width: '100%', justifyContent: 'flex-start', padding: '8px 10px', color: '#ff6b6b', background: 'transparent' }}
+                    >
+                      Delete Account
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -212,19 +251,6 @@ const Profile = ({ username, onClose }) => {
             </svg>
             Edit Profile
           </button>
-
-          {canDeleteAccount && (
-            <button
-              className="profile-edit-btn"
-              style={{ background: "#2b0f14", borderColor: "#512", marginTop: 12 }}
-              onClick={() => setShowDeleteModal(true)}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M3 6h18M8 6V4h8v2m-1 0v12a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6h10z" />
-              </svg>
-              Delete Account
-            </button>
-          )}
 
           <div className="profile-stats">
             <div className="stat">
