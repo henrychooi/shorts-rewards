@@ -1001,6 +1001,50 @@ def create_reward_transaction(user, transaction_type, amount, description, relat
     return transaction
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def delete_my_account(request):
+    """
+    Permanently delete the authenticated user's account.
+    Body: { "confirm": "DELETE" } or { "confirm": "<username>" }
+    """
+    try:
+        confirm = str(request.data.get('confirm', '')).strip()
+        if not confirm or (confirm != 'DELETE' and confirm != request.user.username):
+            return Response({
+                'success': False,
+                'error': 'Confirmation failed. Type DELETE or your username to confirm.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        username = request.user.username
+
+        # Optional: create an audit log entry before deletion
+        try:
+            AuditLog.objects.create(
+                action_type='admin_action',
+                user=request.user,
+                description='User initiated account deletion',
+                metadata={'username': username}
+            )
+        except Exception:
+            pass
+
+        # Delete the user (cascades to Wallet, Transactions, Shorts, etc.)
+        request.user.delete()
+
+        return Response({
+            'success': True,
+            'message': f'Account {username} has been deleted.'
+        })
+
+    except Exception as e:
+        logger.error(f"Error deleting account for {request.user.username}: {e}")
+        return Response({
+            'success': False,
+            'error': 'Failed to delete account'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class CreateUserView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = UserSerializer

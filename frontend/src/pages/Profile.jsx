@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { shortsApi } from "../services/shortsApi";
 import VideoPlayer from "../components/VideoPlayer";
 import "./Profile.css";
+import api from "../api";
+import { ACCESS_TOKEN, REFRESH_TOKEN } from "../constants";
 
 const Profile = ({ username, onClose }) => {
   const [profile, setProfile] = useState(null);
@@ -9,6 +11,10 @@ const Profile = ({ username, onClose }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedShort, setSelectedShort] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const currentUsername = typeof window !== 'undefined' ? localStorage.getItem('username') : null;
 
   useEffect(() => {
     if (username) {
@@ -91,6 +97,26 @@ const Profile = ({ username, onClose }) => {
 
   const handleRetry = () => {
     loadProfile();
+  };
+
+  const canDeleteAccount = username && currentUsername && username === currentUsername;
+
+  const handleDeleteAccount = async () => {
+    try {
+      setDeleting(true);
+      const resp = await api.post("/api/user/delete-account/", { confirm: deleteConfirm });
+      if (resp.data?.success) {
+        // Clear tokens and redirect to login
+        localStorage.removeItem(ACCESS_TOKEN);
+        localStorage.removeItem(REFRESH_TOKEN);
+        localStorage.removeItem("username");
+        window.location.href = "/login";
+      }
+    } catch (err) {
+      alert(err?.response?.data?.error || "Failed to delete account");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   if (loading) {
@@ -186,6 +212,19 @@ const Profile = ({ username, onClose }) => {
             </svg>
             Edit Profile
           </button>
+
+          {canDeleteAccount && (
+            <button
+              className="profile-edit-btn"
+              style={{ background: "#2b0f14", borderColor: "#512", marginTop: 12 }}
+              onClick={() => setShowDeleteModal(true)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 6h18M8 6V4h8v2m-1 0v12a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6h10z" />
+              </svg>
+              Delete Account
+            </button>
+          )}
 
           <div className="profile-stats">
             <div className="stat">
@@ -350,6 +389,38 @@ const Profile = ({ username, onClose }) => {
               </svg>
             </button>
             <VideoPlayer short={selectedShort} isActive={true} />
+          </div>
+        </div>
+      )}
+
+      {showDeleteModal && (
+        <div className="video-modal">
+          <div className="video-modal-content" style={{ maxWidth: 420 }}>
+            <h3 style={{ marginBottom: 8 }}>Delete Account</h3>
+            <p style={{ fontSize: 14, opacity: 0.8 }}>
+              This action permanently deletes your account and all related data.
+              Type <b>DELETE</b> or your username (<b>{currentUsername}</b>) to confirm.
+            </p>
+            <input
+              type="text"
+              placeholder="Type DELETE or your username"
+              value={deleteConfirm}
+              onChange={(e) => setDeleteConfirm(e.target.value)}
+              style={{ width: "100%", marginTop: 12, padding: 10, borderRadius: 8, border: "1px solid #444", background: "#111", color: "#fff" }}
+            />
+            <div style={{ display: "flex", gap: 12, marginTop: 16, justifyContent: "flex-end" }}>
+              <button className="close-modal" onClick={() => setShowDeleteModal(false)}>
+                Cancel
+              </button>
+              <button
+                className="close-modal"
+                disabled={deleting || !(deleteConfirm === 'DELETE' || deleteConfirm === currentUsername)}
+                onClick={handleDeleteAccount}
+                style={{ background: "#b00020", borderColor: "#b00020" }}
+              >
+                {deleting ? "Deleting..." : "Confirm Delete"}
+              </button>
+            </div>
           </div>
         </div>
       )}
