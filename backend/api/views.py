@@ -2270,10 +2270,12 @@ def test_5min_payout(request):
     try:
         platform_revenue = Decimal(str(request.data.get('platform_revenue', 1000)))
         dry_run = request.data.get('dry_run', True)
+        minutes = int(request.data.get('minutes', 5))
 
         result = monthly_revenue_service.test_5minute_payout(
             platform_revenue=platform_revenue,
-            dry_run=dry_run
+            dry_run=dry_run,
+            minutes=minutes
         )
 
         return Response(result)

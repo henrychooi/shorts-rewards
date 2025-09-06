@@ -721,7 +721,7 @@ class MonthlyRevenueShareService:
                 'error': str(e)
             }
     
-    def get_5minute_creator_points(self) -> Dict:
+    def get_5minute_creator_points(self, minutes: int = 5) -> Dict:
         """
         TEST FUNCTION: Get creator points for the last 5 minutes with averaging system.
         Perfect for testing the payout system quickly!
@@ -732,11 +732,12 @@ class MonthlyRevenueShareService:
         - Use average points for payout distribution
         """
         try:
-            # Get shorts from the last 5 minutes
-            five_minutes_ago = timezone.now() - timedelta(minutes=5)
+            # Get shorts from the last N minutes (default 5)
+            lookback = max(1, int(minutes))  # safety: at least 1 minute
+            window_start = timezone.now() - timedelta(minutes=lookback)
             
             recent_shorts = Short.objects.filter(
-                Q(created_at__gte=five_minutes_ago) &
+                Q(created_at__gte=window_start) &
                 Q(is_active=True)
             )
             
@@ -804,7 +805,8 @@ class MonthlyRevenueShareService:
             return {}
     
     def test_5minute_payout(self, platform_revenue: Decimal = Decimal('1000'), 
-                           dry_run: bool = True) -> Dict:
+                           dry_run: bool = True,
+                           minutes: int = 5) -> Dict:
         """
         TEST FUNCTION: Process payouts based on last 5 minutes of activity.
         Perfect for quick testing without waiting for a month!
@@ -816,15 +818,15 @@ class MonthlyRevenueShareService:
         try:
             self.logger.info("Testing 5-minute payout system")
             
-            # Get creator points from last 5 minutes
-            creator_points = self.get_5minute_creator_points()
+            # Get creator points from last N minutes
+            creator_points = self.get_5minute_creator_points(minutes=minutes)
             
             if not creator_points:
                 return {
                     'success': False,
                     'message': 'No shorts found in the last 5 minutes. Upload a video first!',
                     'suggestion': 'Upload a video and try again',
-                    'timeframe': 'Last 5 minutes'
+                    'timeframe': f'Last {minutes} minutes'
                 }
             
             # Calculate total AVERAGE points using Decimal (stability)
@@ -858,7 +860,7 @@ class MonthlyRevenueShareService:
             
             result = {
                 'success': True,
-                'timeframe': 'Last 5 minutes',
+                'timeframe': f'Last {minutes} minutes',
                 'total_creator_average_points': total_average_points,  # Changed from total_points
                 'platform_revenue': platform_revenue,
                 'creators_pool': creators_pool,
