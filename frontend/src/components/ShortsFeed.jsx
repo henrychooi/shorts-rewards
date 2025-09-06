@@ -5,7 +5,7 @@ import { useViewCount } from "../contexts/ViewCountContext";
 import { useLikeCount } from "../contexts/LikeCountContext";
 import "./ShortsFeed.css";
 
-const ShortsFeed = ({ onProfileClick }) => {
+const ShortsFeed = ({ onProfileClick, feedType = "forYou" }) => {
   const [shorts, setShorts] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -18,7 +18,7 @@ const ShortsFeed = ({ onProfileClick }) => {
 
   useEffect(() => {
     loadShorts();
-  }, []);
+  }, [feedType]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -42,7 +42,7 @@ const ShortsFeed = ({ onProfileClick }) => {
       console.log("🔄 Loading shorts from API...");
 
       // Try to fetch from API first
-      const response = await shortsApi.getShorts();
+      const response = feedType === 'following' ? await shortsApi.getFollowingShorts() : await shortsApi.getShorts();
       console.log("📡 API Response:", response);
 
       if (response.data && Array.isArray(response.data)) {
@@ -59,6 +59,7 @@ const ShortsFeed = ({ onProfileClick }) => {
           like_count: short.like_count || 0,
           comment_count: short.comment_count || 0,
           is_liked: short.is_liked || false,
+          is_following_author: short.is_following_author || short.author?.is_following || false,
           duration: short.duration,
           author: short.author,
           comments: short.comments || [],
@@ -215,13 +216,23 @@ const ShortsFeed = ({ onProfileClick }) => {
 
   if (loading) {
     return (
-      <div className="modern-shorts-loading">
+      <div className="modern-shorts-feed">
         <div className="modern-bg-gradient-1"></div>
         <div className="modern-bg-gradient-2"></div>
-
-        <div className="modern-loading-container">
-          <div className="modern-loading-spinner" />
-          <p>Loading amazing shorts...</p>
+        <div className="modern-bg-gradient-3"></div>
+        <div className="skeleton-feed">
+          {[1,2,3].map((i) => (
+            <div key={i} className="skeleton-card">
+              <div className="skeleton-video" />
+              <div className="skeleton-meta">
+                <div className="skeleton-avatar" />
+                <div className="skeleton-lines">
+                  <div className="skeleton-line short" />
+                  <div className="skeleton-line long" />
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );

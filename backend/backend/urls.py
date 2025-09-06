@@ -18,7 +18,8 @@ from api.views import (
     # Monthly Revenue Sharing endpoints
     monthly_creator_points, calculate_monthly_revenue_share, process_monthly_payouts, my_monthly_earnings, calculate_points_for_shorts,
     withdraw_wallet_balance, my_payout_history, test_5min_payout, test_3min_payout,
-    delete_my_account
+    delete_my_account,
+    toggle_follow, following_feed
 )
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -46,6 +47,8 @@ urlpatterns = [
     path("api/admin/shorts/<uuid:short_id>/recalculate-rewards/", recalculate_short_rewards, name="recalculate-short-rewards"),
     path("api/my-shorts/", user_shorts, name="user-shorts"),
     path("api/profile/<str:username>/", user_profile, name="user-profile"),
+    path("api/profile/<str:username>/follow-toggle/", toggle_follow, name="toggle-follow"),
+    path("api/shorts/following/", following_feed, name="following-feed"),
     path("api/watch-history/", get_user_watch_history, name="user-watch-history"),
     
     # Wallet endpoints

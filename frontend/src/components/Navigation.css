@@ -179,16 +179,17 @@
 .nav-item.special {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
-  border-radius: 50%;
-  width: 56px;
-  height: 56px;
-  margin-top: -8px;
-  box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+  border-radius: 18px;
+  width: 64px;
+  height: 64px;
+  margin-top: -12px;
+  border: 3px solid rgba(255,255,255,0.9);
+  box-shadow: 0 10px 28px rgba(102, 126, 234, 0.5);
 }
 
 .nav-item.special:hover {
-  transform: scale(1.05);
-  box-shadow: 0 6px 25px rgba(102, 126, 234, 0.5);
+  transform: translateY(-2px) scale(1.06);
+  box-shadow: 0 14px 36px rgba(102, 126, 234, 0.6);
 }
 
 .nav-item.special .nav-label {
@@ -233,9 +234,10 @@
   }
 
   .nav-item.special {
-    width: 48px;
-    height: 48px;
-    margin-top: -6px;
+    width: 58px;
+    height: 58px;
+    margin-top: -10px;
+    border-width: 2px;
   }
 
   .nav-label {

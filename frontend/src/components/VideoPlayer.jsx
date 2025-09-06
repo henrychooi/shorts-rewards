@@ -281,6 +281,40 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
     return `${Math.floor(diffInSeconds / 86400)}d ago`;
   };
 
+  // Keyboard accessibility: like (l) and mute (m) for active video
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!isActive) return;
+      if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        handleLike();
+      } else if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        // simulate event with stopPropagation guard
+        toggleMute({ stopPropagation: () => {} });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isActive, likeCount, isLiked]);
+
+  const [isFollowing, setIsFollowing] = useState(short.is_following_author || short.author?.is_following || false);
+  const [followBusy, setFollowBusy] = useState(false);
+
+  const handleToggleFollow = async (e) => {
+    e.stopPropagation();
+    if (!short?.author?.username) return;
+    try {
+      setFollowBusy(true);
+      const resp = await shortsApi.toggleFollow(short.author.username);
+      setIsFollowing(resp.data?.following ?? false);
+    } catch (err) {
+      console.error('Toggle follow failed', err);
+    } finally {
+      setFollowBusy(false);
+    }
+  };
+
   return (
     <div className="video-container">
       <div className="video-wrapper">
@@ -331,6 +365,18 @@ const VideoPlayer = ({ short, isActive, onProfileClick }) => {
               <h3 className="username">@{short.author.username}</h3>
               <p className="timestamp">{formatTimeAgo(short.created_at)}</p>
             </div>
+            {/* Follow button */}
+            {short.author?.username && (typeof window === 'undefined' || localStorage.getItem('username') !== short.author.username) && (
+              <button
+                className={`follow-btn ${isFollowing ? 'following' : ''}`}
+                onClick={handleToggleFollow}
+                disabled={followBusy}
+                title={isFollowing ? 'Unfollow' : 'Follow'}
+                aria-pressed={isFollowing}
+              >
+                {isFollowing ? 'Following' : 'Follow'}
+              </button>
+            )}
           </div>
 
           {short.title && <h4 className="video-title">{short.title}</h4>}
