@@ -118,7 +118,6 @@ const Navigation = ({
           </div>
 
           <div className="header-actions">
-            <ThemeToggle />
             <button className="create-btn-desktop" onClick={onCreateShort}>
               <svg
                 width="20"
@@ -196,6 +195,7 @@ const Navigation = ({
                 </button>
               </div>
             </div>
+            <ThemeToggle />
           </div>
         </div>
       </header>
