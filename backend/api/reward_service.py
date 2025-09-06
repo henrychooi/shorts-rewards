@@ -17,7 +17,7 @@ import logging
 import hashlib
 import json
 import secrets
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, Optional, List
 from datetime import datetime, timedelta
 from django.utils import timezone
@@ -35,6 +35,13 @@ class MonthlyRevenueShareService:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.platform_revenue_share = Decimal('0.50')  # 50% to creators
+        self._cent = Decimal('0.01')
+
+    def _quantize_money(self, amount: Decimal) -> Decimal:
+        """Round to 2 decimals using HALF_UP (money)."""
+        if not isinstance(amount, Decimal):
+            amount = Decimal(str(amount))
+        return amount.quantize(self._cent, rounding=ROUND_HALF_UP)
     
     def _generate_digital_signature(self, transaction_data: Dict) -> str:
         """Generate a digital signature for transaction verification"""
@@ -333,8 +340,8 @@ class MonthlyRevenueShareService:
                     'payouts': {}
                 }
             
-            # Calculate total AVERAGE points across all creators (not total points)
-            total_average_points = sum(data['average_points'] for data in creator_points.values())
+            # Calculate total AVERAGE points across all creators using Decimal for stability
+            total_average_points = sum(Decimal(str(data['average_points'])) for data in creator_points.values())
             
             if total_average_points <= 0:
                 return {
@@ -353,9 +360,10 @@ class MonthlyRevenueShareService:
             # Calculate individual payouts based on AVERAGE points
             payouts = {}
             for creator_id, data in creator_points.items():
-                # Use average points for percentage calculation
-                creator_avg_pct = Decimal(str(data['average_points'])) / Decimal(str(total_average_points))
-                payout_amount = creators_pool * creator_avg_pct
+                # Use Decimal for percentage calculation; quantize payout to 2 decimals
+                avg_points = Decimal(str(data['average_points']))
+                creator_avg_pct = (avg_points / total_average_points) if total_average_points > 0 else Decimal('0')
+                payout_amount = self._quantize_money(creators_pool * creator_avg_pct)
                 
                 payouts[creator_id] = {
                     'user': data['user'],
@@ -435,6 +443,8 @@ class MonthlyRevenueShareService:
                     wallet, created = Wallet.objects.get_or_create(user=user)
                     
                     # Create blockchain-secured transaction
+                    # Quantize amount to standard currency precision
+                    amount = self._quantize_money(amount)
                     transaction_obj = self._create_secure_transaction(
                         wallet=wallet,
                         transaction_type='monthly_revenue_share',
@@ -473,8 +483,8 @@ class MonthlyRevenueShareService:
                     )
                     
                     # Update wallet
-                    wallet.balance += amount
-                    wallet.total_earnings += amount
+                    wallet.balance = self._quantize_money(wallet.balance + amount)
+                    wallet.total_earnings = self._quantize_money(wallet.total_earnings + amount)
                     wallet.save()
                     
                     # 🔐 Confirm transaction in blockchain system
@@ -557,7 +567,7 @@ class MonthlyRevenueShareService:
                         'current_balance': wallet.balance
                     }
                 
-                withdrawal_amount = wallet.balance
+                withdrawal_amount = self._quantize_money(wallet.balance)
                 
                 # Create blockchain-secured withdrawal transaction
                 withdrawal_transaction = self._create_secure_transaction(
@@ -585,7 +595,7 @@ class MonthlyRevenueShareService:
                 )
                 
                 # Reset wallet balance
-                wallet.balance = Decimal('0')
+                wallet.balance = Decimal('0.00')
                 wallet.save()
                 
                 # 🔐 Confirm withdrawal transaction in blockchain system
@@ -711,7 +721,7 @@ class MonthlyRevenueShareService:
                 'error': str(e)
             }
     
-    def get_5minute_creator_points(self) -> Dict:
+    def get_5minute_creator_points(self, minutes: int = 5) -> Dict:
         """
         TEST FUNCTION: Get creator points for the last 5 minutes with averaging system.
         Perfect for testing the payout system quickly!
@@ -722,11 +732,12 @@ class MonthlyRevenueShareService:
         - Use average points for payout distribution
         """
         try:
-            # Get shorts from the last 5 minutes
-            five_minutes_ago = timezone.now() - timedelta(minutes=5)
+            # Get shorts from the last N minutes (default 5)
+            lookback = max(1, int(minutes))  # safety: at least 1 minute
+            window_start = timezone.now() - timedelta(minutes=lookback)
             
             recent_shorts = Short.objects.filter(
-                Q(created_at__gte=five_minutes_ago) &
+                Q(created_at__gte=window_start) &
                 Q(is_active=True)
             )
             
@@ -794,7 +805,8 @@ class MonthlyRevenueShareService:
             return {}
     
     def test_5minute_payout(self, platform_revenue: Decimal = Decimal('1000'), 
-                           dry_run: bool = True) -> Dict:
+                           dry_run: bool = True,
+                           minutes: int = 5) -> Dict:
         """
         TEST FUNCTION: Process payouts based on last 5 minutes of activity.
         Perfect for quick testing without waiting for a month!
@@ -806,27 +818,28 @@ class MonthlyRevenueShareService:
         try:
             self.logger.info("Testing 5-minute payout system")
             
-            # Get creator points from last 5 minutes
-            creator_points = self.get_5minute_creator_points()
+            # Get creator points from last N minutes
+            creator_points = self.get_5minute_creator_points(minutes=minutes)
             
             if not creator_points:
                 return {
                     'success': False,
                     'message': 'No shorts found in the last 5 minutes. Upload a video first!',
                     'suggestion': 'Upload a video and try again',
-                    'timeframe': 'Last 5 minutes'
+                    'timeframe': f'Last {minutes} minutes'
                 }
             
-            # Calculate total AVERAGE points (not total points)
-            total_average_points = sum(data['average_points'] for data in creator_points.values())
+            # Calculate total AVERAGE points using Decimal (stability)
+            total_average_points = sum(Decimal(str(data['average_points'])) for data in creator_points.values())
             creators_pool = platform_revenue * self.platform_revenue_share
             
             # Calculate payouts based on AVERAGE points
             payouts = {}
             for creator_id, data in creator_points.items():
-                # Use average points for percentage calculation
-                avg_points_percentage = data['average_points'] / total_average_points if total_average_points > 0 else 0
-                payout_amount = creators_pool * Decimal(str(avg_points_percentage))
+                # Use Decimal for percentage calculation; quantize to 2 decimals
+                avg_points = Decimal(str(data['average_points']))
+                avg_points_percentage = (avg_points / total_average_points) if total_average_points > 0 else Decimal('0')
+                payout_amount = self._quantize_money(creators_pool * avg_points_percentage)
                 
                 payouts[creator_id] = {
                     'user': data['user'],
@@ -834,7 +847,7 @@ class MonthlyRevenueShareService:
                     'total_points': data['total_points'],
                     'video_count': data['video_count'],
                     'average_points': data['average_points'],  # New field
-                    'average_points_percentage': avg_points_percentage * 100,  # Percentage based on average
+                    'average_points_percentage': float(avg_points_percentage * 100),  # For display
                     'payout_amount': payout_amount,
                     'shorts': data['shorts']
                 }
@@ -847,7 +860,7 @@ class MonthlyRevenueShareService:
             
             result = {
                 'success': True,
-                'timeframe': 'Last 5 minutes',
+                'timeframe': f'Last {minutes} minutes',
                 'total_creator_average_points': total_average_points,  # Changed from total_points
                 'platform_revenue': platform_revenue,
                 'creators_pool': creators_pool,
@@ -872,7 +885,8 @@ class MonthlyRevenueShareService:
                         # Get or create wallet
                         wallet, created = Wallet.objects.get_or_create(user=user)
                         
-                        # Create blockchain-secured test transaction
+                        # Quantize amount and create blockchain-secured test transaction
+                        amount = self._quantize_money(amount)
                         transaction_obj = self._create_secure_transaction(
                             wallet=wallet,
                             transaction_type='monthly_revenue_share',
@@ -888,8 +902,8 @@ class MonthlyRevenueShareService:
                         )
                         
                         # Update wallet
-                        wallet.balance += amount
-                        wallet.total_earnings += amount
+                        wallet.balance = self._quantize_money(wallet.balance + amount)
+                        wallet.total_earnings = self._quantize_money(wallet.total_earnings + amount)
                         wallet.save()
                         
                         # 🔐 Confirm test transaction

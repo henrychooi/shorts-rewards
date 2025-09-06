@@ -17,7 +17,8 @@ from api.views import (
     analyze_single_video, get_video_analysis, batch_analyze_videos, video_analysis_report,
     # Monthly Revenue Sharing endpoints
     monthly_creator_points, calculate_monthly_revenue_share, process_monthly_payouts, my_monthly_earnings, calculate_points_for_shorts,
-    withdraw_wallet_balance, my_payout_history
+    withdraw_wallet_balance, my_payout_history, test_5min_payout, test_3min_payout,
+    delete_my_account
 )
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -79,9 +80,12 @@ urlpatterns = [
     path('api/admin/revenue-share/calculate/', calculate_monthly_revenue_share, name='calculate_monthly_revenue_share'),
     path('api/admin/revenue-share/process-payouts/', process_monthly_payouts, name='process_monthly_payouts'),
     path('api/admin/revenue-share/calculate-points/', calculate_points_for_shorts, name='calculate_points_for_shorts'),
+    path('api/admin/revenue-share/test-5min/', test_5min_payout, name='test_5min_payout'),
+    path('api/admin/revenue-share/test-3min/', test_3min_payout, name='test_3min_payout'),
     path('api/revenue-share/my-earnings/', my_monthly_earnings, name='my_monthly_earnings'),
     path('api/wallet/withdraw/', withdraw_wallet_balance, name='withdraw_wallet_balance'),
     path('api/wallet/payout-history/', my_payout_history, name='my_payout_history'),
+    path('api/user/delete-account/', delete_my_account, name='delete_my_account'),
 ]
 
 # Serve media files during development

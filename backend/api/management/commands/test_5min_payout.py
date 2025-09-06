@@ -18,19 +18,27 @@ class Command(BaseCommand):
             action='store_true',
             help='Create real transactions (default: dry run)'
         )
+        parser.add_argument(
+            '--minutes',
+            type=int,
+            default=5,
+            help='Lookback window in minutes (default: 5)'
+        )
 
     def handle(self, *args, **options):
         revenue = Decimal(str(options['revenue']))
         dry_run = not options['real']
+        minutes = int(options.get('minutes', 5))
         
         self.stdout.write(self.style.SUCCESS('🚀 5-Minute Payout Test'))
-        self.stdout.write(f'⏱️  Testing payouts for videos uploaded in the last 5 minutes')
+        self.stdout.write(f'⏱️  Testing payouts for videos uploaded in the last {minutes} minutes')
         self.stdout.write(f'💰 Platform Revenue: ${revenue}')
         self.stdout.write(f'🎯 Mode: {"🔥 REAL TRANSACTIONS" if not dry_run else "🧪 DRY RUN"}')
         
         result = monthly_revenue_service.test_5minute_payout(
             platform_revenue=revenue,
-            dry_run=dry_run
+            dry_run=dry_run,
+            minutes=minutes
         )
         
         if result['success']:

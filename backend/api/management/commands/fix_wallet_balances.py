@@ -24,15 +24,15 @@ class Command(BaseCommand):
         updated_count = 0
         
         for wallet in wallets:
-            # Calculate correct balance from all confirmed transactions
-            confirmed_transactions = wallet.transactions.filter(is_confirmed=True)
-            correct_balance = sum(t.amount for t in confirmed_transactions)
+            # Calculate correct balance from all transactions (confirmed or not)
+            transactions = wallet.transactions.all()
+            correct_balance = sum((t.amount for t in transactions), Decimal('0.00'))
             
             # Calculate correct total earnings - sum of all positive earnings minus withdrawn amounts
             # Only count positive earnings (rewards, bonuses, payouts)
-            positive_earnings = sum(t.amount for t in confirmed_transactions if t.amount > 0)
+            positive_earnings = sum((t.amount for t in transactions if t.amount > 0), Decimal('0.00'))
             # Sum of all withdrawals (negative amounts)
-            withdrawals = sum(abs(t.amount) for t in confirmed_transactions if t.amount < 0 and t.transaction_type == 'withdrawal')
+            withdrawals = sum((abs(t.amount) for t in transactions if t.amount < 0 and t.transaction_type == 'withdrawal'), Decimal('0.00'))
             # Total earnings should be cumulative positive earnings minus what was withdrawn
             correct_total_earnings = positive_earnings
             
@@ -47,7 +47,7 @@ class Command(BaseCommand):
                     f"Wallet for {wallet.user.username}:\n"
                     f"  Current balance: ${wallet.balance} -> ${correct_balance}\n"
                     f"  Current total_earnings: ${wallet.total_earnings} -> ${correct_total_earnings}\n"
-                    f"  Transaction count: {confirmed_transactions.count()}"
+                    f"  Transaction count: {transactions.count()}"
                 )
                 
                 if not dry_run:
