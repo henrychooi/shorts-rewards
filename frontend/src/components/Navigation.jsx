@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import "./Navigation.css";
+import ThemeToggle from "./ThemeToggle";
 
 const Navigation = ({
   onCreateShort,
@@ -117,6 +118,7 @@ const Navigation = ({
           </div>
 
           <div className="header-actions">
+            <ThemeToggle />
             <button className="create-btn-desktop" onClick={onCreateShort}>
               <svg
                 width="20"

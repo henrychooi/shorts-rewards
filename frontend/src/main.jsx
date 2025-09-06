@@ -4,13 +4,16 @@ import App from "./App.jsx";
 import "./styles/globals.css";
 import { ViewCountProvider } from "./contexts/ViewCountContext";
 import { LikeCountProvider } from "./contexts/LikeCountContext";
+import { ThemeProvider } from "./contexts/ThemeContext";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
-    <ViewCountProvider>
-      <LikeCountProvider>
-        <App />
-      </LikeCountProvider>
-    </ViewCountProvider>
+    <ThemeProvider>
+      <ViewCountProvider>
+        <LikeCountProvider>
+          <App />
+        </LikeCountProvider>
+      </ViewCountProvider>
+    </ThemeProvider>
   </StrictMode>
 );
