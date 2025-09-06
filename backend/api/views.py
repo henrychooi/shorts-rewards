@@ -24,7 +24,7 @@ from .serializers import (
 )
 from .comment_analysis_service import CommentAnalysisService
 from .reward_service import monthly_revenue_service
-from .models import Note, Short, Like, Comment, View, Wallet, Transaction, AuditLog, Follow
+from .models import Note, Short, Like, Comment, View, Wallet, Transaction, AuditLog
 from .gemini_video_service import gemini_video_service
 from .gemini_audio_service import gemini_audio_service
 import logging
@@ -51,24 +51,6 @@ class ShortsListView(generics.ListAPIView):
                 'view_count','like_count','comment_count','duration','is_active'
             )
         )
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def following_feed(request):
-    """Return shorts from users the requester follows"""
-    following_users = Follow.objects.filter(follower=request.user).values_list('following_id', flat=True)
-    qs = (
-        Short.objects
-        .filter(is_active=True, author_id__in=list(following_users))
-        .select_related('author')
-        .prefetch_related('likes')
-        .only('id','title','description','video','thumbnail','author','created_at','view_count','like_count','comment_count','duration','is_active')
-        .order_by('-created_at')
-    )
-    from .serializers import ShortListSerializer
-    serializer = ShortListSerializer(qs, many=True, context={'request': request})
-    return Response(serializer.data)
 
 
 class ShortCreateView(generics.CreateAPIView):
@@ -848,34 +830,13 @@ def user_shorts(request):
 @permission_classes([AllowAny])
 def user_profile(request, username):
     user = get_object_or_404(User, username=username)
-    user_serializer = UserProfileSerializer(user, context={'request': request})
+    user_serializer = UserProfileSerializer(user)
     shorts = Short.objects.filter(author=user, is_active=True)[:20]  # Latest 20 shorts
     shorts_serializer = ShortSerializer(shorts, many=True, context={'request': request})
     
     return Response({
         'user': user_serializer.data,
         'shorts': shorts_serializer.data
-    })
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def toggle_follow(request, username):
-    """Follow/unfollow a user by username"""
-    target = get_object_or_404(User, username=username)
-    if target == request.user:
-        return Response({"error": "You cannot follow yourself"}, status=status.HTTP_400_BAD_REQUEST)
-    rel, created = Follow.objects.get_or_create(follower=request.user, following=target)
-    if not created:
-        rel.delete()
-        following = False
-    else:
-        following = True
-    return Response({
-        'following': following,
-        'followers_count': Follow.objects.filter(following=target).count(),
-        'following_count': Follow.objects.filter(follower=request.user).count(),
-        'user': target.username,
     })
 
 

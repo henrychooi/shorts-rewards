@@ -31,7 +31,6 @@ function Home() {
   const [loadingShorts, setLoadingShorts] = useState(true);
   const { viewCounts } = useViewCount();
   const { likeCounts } = useLikeCount();
-  const [feedType, setFeedType] = useState("forYou"); // forYou | following
 
   useEffect(() => {
     getCurrentUser();
@@ -149,26 +148,11 @@ function Home() {
                   <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
                 </svg>
               </button>
-              <h2>{feedType === 'following' ? 'Following' : 'For You'}</h2>
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-                <button
-                  className={`view-toggle-tab ${feedType === 'forYou' ? 'active' : ''}`}
-                  onClick={() => setFeedType('forYou')}
-                >
-                  For You
-                </button>
-                <button
-                  className={`view-toggle-tab ${feedType === 'following' ? 'active' : ''}`}
-                  onClick={() => setFeedType('following')}
-                >
-                  Following
-                </button>
-              </div>
+              <h2>All Shorts</h2>
             </div>
             <ShortsFeed 
               key={`${refreshFeed}-${currentView}`} 
-              onProfileClick={handleProfileView}
-              feedType={feedType}
+              onProfileClick={handleProfileView} 
             />
           </div>
         );

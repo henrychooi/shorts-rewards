@@ -1,7 +1,7 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
 from django.core.validators import FileExtensionValidator
-from .models import Note, Short, Like, Comment, View, Wallet, Transaction, AuditLog, Follow
+from .models import Note, Short, Like, Comment, View, Wallet, Transaction, AuditLog
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -19,17 +19,10 @@ class UserProfileSerializer(serializers.ModelSerializer):
     shorts_count = serializers.SerializerMethodField()
     total_likes = serializers.SerializerMethodField()
     total_views = serializers.SerializerMethodField()
-    followers_count = serializers.SerializerMethodField()
-    following_count = serializers.SerializerMethodField()
-    is_following = serializers.SerializerMethodField()
     
     class Meta:
         model = User
-        fields = [
-            "id", "username", "date_joined",
-            "shorts_count", "total_likes", "total_views",
-            "followers_count", "following_count", "is_following"
-        ]
+        fields = ["id", "username", "date_joined", "shorts_count", "total_likes", "total_views"]
     
     def get_shorts_count(self, obj):
         return obj.shorts.filter(is_active=True).count()
@@ -39,19 +32,6 @@ class UserProfileSerializer(serializers.ModelSerializer):
     
     def get_total_views(self, obj):
         return sum(short.view_count for short in obj.shorts.filter(is_active=True))
-    
-    def get_followers_count(self, obj):
-        return Follow.objects.filter(following=obj).count()
-    
-    def get_following_count(self, obj):
-        return Follow.objects.filter(follower=obj).count()
-    
-    def get_is_following(self, obj):
-        request = self.context.get('request')
-        user = getattr(request, 'user', None)
-        if user and user.is_authenticated and user != obj:
-            return Follow.objects.filter(follower=user, following=obj).exists()
-        return False
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -73,7 +53,6 @@ class ShortSerializer(serializers.ModelSerializer):
     like_count = serializers.ReadOnlyField()
     comment_count = serializers.ReadOnlyField()
     is_liked = serializers.SerializerMethodField()
-    is_following_author = serializers.SerializerMethodField()
     comments = CommentSerializer(many=True, read_only=True)
     
     class Meta:
@@ -81,7 +60,7 @@ class ShortSerializer(serializers.ModelSerializer):
         fields = [
             "id", "title", "description", "video", "thumbnail", "author",
             "created_at", "view_count", "duration", "like_count", "comment_count",
-            "is_liked", "is_following_author", "comments", "transcript", "audio_quality_score",
+            "is_liked", "comments", "transcript", "audio_quality_score",
             "transcript_language", "audio_processed_at", "comment_analysis_score",
             # Video analysis fields
             "video_analysis_status", "video_quality_score", "video_analysis_summary",
@@ -95,12 +74,6 @@ class ShortSerializer(serializers.ModelSerializer):
         if user.is_authenticated:
             return Like.objects.filter(user=user, short=obj).exists()
         return False
-    
-    def get_is_following_author(self, obj):
-        user = self.context.get('request').user
-        if user.is_authenticated and obj.author_id != user.id:
-            return Follow.objects.filter(follower=user, following=obj.author).exists()
-        return False
 
 
 class ShortListSerializer(serializers.ModelSerializer):
@@ -108,14 +81,13 @@ class ShortListSerializer(serializers.ModelSerializer):
     like_count = serializers.ReadOnlyField()
     comment_count = serializers.ReadOnlyField()
     is_liked = serializers.SerializerMethodField()
-    is_following_author = serializers.SerializerMethodField()
 
     class Meta:
         model = Short
         fields = [
             "id", "title", "description", "video", "thumbnail", "author",
             "created_at", "view_count", "duration", "like_count", "comment_count",
-            "is_liked", "is_following_author"
+            "is_liked"
         ]
         extra_kwargs = {"author": {"read_only": True}}
 
@@ -123,12 +95,6 @@ class ShortListSerializer(serializers.ModelSerializer):
         user = self.context.get('request').user
         if user and user.is_authenticated:
             return Like.objects.filter(user=user, short=obj).exists()
-        return False
-    
-    def get_is_following_author(self, obj):
-        user = self.context.get('request').user
-        if user and user.is_authenticated and obj.author_id != user.id:
-            return Follow.objects.filter(follower=user, following=obj.author).exists()
         return False
 
 class ShortCreateSerializer(serializers.ModelSerializer):

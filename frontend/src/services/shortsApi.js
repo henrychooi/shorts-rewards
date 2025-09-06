@@ -4,9 +4,6 @@ export const shortsApi = {
   // Get all shorts
   getShorts: () => api.get("/api/shorts/"),
 
-  // Get following feed
-  getFollowingShorts: () => api.get("/api/shorts/following/"),
-
   // Get specific short
   getShort: (id) => api.get(`/api/shorts/${id}/`),
 
@@ -56,7 +53,4 @@ export const shortsApi = {
 
   // Get user profile
   getUserProfile: (username) => api.get(`/api/profile/${username}/`),
-
-  // Follow/unfollow a user
-  toggleFollow: (username) => api.post(`/api/profile/${username}/follow-toggle/`),
 };
