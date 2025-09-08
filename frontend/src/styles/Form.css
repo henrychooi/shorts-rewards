@@ -206,23 +206,24 @@ body {
   justify-content: center;
   align-items: center;
   gap: 0;
-  padding: 0;
+  padding: 0.75rem 1.5rem;
   text-align: center;
-  line-height: 0;
+  line-height: 1;
+  background: linear-gradient(135deg, #3730a3 0%, #6d28d9 100%) !important;
 }
 
 .loading-spinner {
-  position: absolute !important;
-  top: 50% !important;
-  left: 50% !important;
-  margin-top: -1rem !important;
-  margin-left: -1rem !important;
-  width: 1rem;
-  height: 1rem;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-radius: 50%;
-  border-top-color: #ffffff;
-  animation: spin 1s linear infinite;
+  display: inline-block !important;
+  width: 2rem !important;
+  height: 2rem !important;
+  border: 3px solid #fbbf24 !important;
+  border-radius: 50% !important;
+  border-top-color: #ffffff !important;
+  border-right-color: #ffffff !important;
+  animation: spin 1s linear infinite !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  margin-top: 1rem !important;
 }
 
 @keyframes spin {
