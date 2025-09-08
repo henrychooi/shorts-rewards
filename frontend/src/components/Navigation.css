@@ -10,6 +10,11 @@
   display: none;
 }
 
+/* In light mode, remove the subtle divider line under the header */
+:root[data-theme="light"] .top-header {
+  border-bottom: none;
+}
+
 .header-content {
   display: flex;
   justify-content: space-between;

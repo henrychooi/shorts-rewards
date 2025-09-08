@@ -8,7 +8,7 @@ const ThemeToggle = () => {
 
   return (
     <button
-      className={`theme-toggle ${isDark ? "is-dark" : "is-light"}`}
+      className={`theme-toggle floating ${isDark ? "is-dark" : "is-light"}`}
       aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
       aria-pressed={isDark}
       title={isDark ? "Switch to light mode" : "Switch to dark mode"}

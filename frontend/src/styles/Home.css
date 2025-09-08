@@ -2,7 +2,7 @@
   position: relative;
   width: 100%;
   min-height: 100vh;
-  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 50%, #f0f9ff 100%);
+  background: var(--bg);
   overflow: auto;
 }
 
@@ -62,6 +62,13 @@
   animation-delay: -5s;
 }
 
+/* Dark mode: remove light decorative glows to keep background pure */
+:root[data-theme="dark"] .home-bg-decoration-1,
+:root[data-theme="dark"] .home-bg-decoration-2,
+:root[data-theme="dark"] .home-bg-decoration-3 {
+  display: none;
+}
+
 @keyframes float {
   0%,
   100% {
@@ -91,10 +98,15 @@
 .home-welcome {
   padding: 40px 24px 20px;
   text-align: center;
-  background: rgba(255, 255, 255, 0.4);
+  background: var(--surface);
   backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+  border-bottom: 1px solid var(--border-color);
   margin-bottom: 20px;
+}
+
+/* In light mode, remove the divider line under the welcome section */
+:root[data-theme="light"] .home-welcome {
+  border-bottom: none;
 }
 
 .home-welcome h1 {
@@ -109,7 +121,7 @@
 
 .home-welcome p {
   font-size: 16px;
-  color: #6b7280;
+  color: var(--muted-text);
   margin: 0 0 20px 0;
   max-width: 500px;
   margin-left: auto;
@@ -169,8 +181,8 @@
 }
 
 .home-stat-card {
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(24px);
+  background: #ffffff; /* pure white card in all themes */
+  backdrop-filter: none;
   border: 1px solid rgba(59, 130, 246, 0.2);
   border-radius: 16px;
   padding: 20px;
@@ -183,7 +195,7 @@
 .home-stat-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.1);
-  background: rgba(255, 255, 255, 0.7);
+  background: #ffffff; /* keep white on hover */
 }
 
 .home-stat-icon {
@@ -306,7 +318,7 @@ body {
 
 .content-section-header p {
   font-size: 16px;
-  color: #6b7280;
+  color: var(--muted-text);
   margin: 0;
 }
 
