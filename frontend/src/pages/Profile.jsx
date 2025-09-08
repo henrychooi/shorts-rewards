@@ -16,9 +16,11 @@ const Profile = ({ username, onClose }) => {
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deletingShortId, setDeletingShortId] = useState(null);
+  const [shortMenus, setShortMenus] = useState({}); // Track dropdown state for each short
   const currentUsername = typeof window !== 'undefined' ? localStorage.getItem('username') : null;
   const menuRef = useRef(null);
   const menuBtnRef = useRef(null);
+  const shortMenuRefs = useRef({}); // Refs for short dropdown menus
 
   useEffect(() => {
     if (username) {
@@ -106,6 +108,25 @@ const Profile = ({ username, onClose }) => {
   const canDeleteAccount = username && currentUsername && username === currentUsername;
   const canModifyShorts = canDeleteAccount;
 
+  // Handle short dropdown menu
+  const toggleShortMenu = (shortId) => {
+    setShortMenus(prev => ({
+      ...prev,
+      [shortId]: !prev[shortId]
+    }));
+  };
+
+  const closeShortMenu = (shortId) => {
+    setShortMenus(prev => ({
+      ...prev,
+      [shortId]: false
+    }));
+  };
+
+  const closeAllShortMenus = () => {
+    setShortMenus({});
+  };
+
   // Close header dropdown on outside click
   useEffect(() => {
     const onDocClick = (e) => {
@@ -119,6 +140,22 @@ const Profile = ({ username, onClose }) => {
     document.addEventListener('mousedown', onDocClick);
     return () => document.removeEventListener('mousedown', onDocClick);
   }, [showMenu]);
+
+  // Close short dropdowns on outside click
+  useEffect(() => {
+    const onDocClick = (e) => {
+      const activeMenus = Object.keys(shortMenus).filter(id => shortMenus[id]);
+      if (activeMenus.length === 0) return;
+      
+      for (const shortId of activeMenus) {
+        const menuRef = shortMenuRefs.current[shortId];
+        if (menuRef && menuRef.contains(e.target)) return;
+      }
+      closeAllShortMenus();
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [shortMenus]);
 
   const handleDeleteAccount = async () => {
     try {
@@ -392,28 +429,52 @@ const Profile = ({ username, onClose }) => {
                       </span>
                     </div>
                     {canModifyShorts && (
-                      <button
-                        className="delete-short-btn"
-                        title="Delete short"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteShort(short.id);
-                        }}
-                        disabled={deletingShortId === short.id}
+                      <div 
+                        className="short-menu-container"
+                        ref={(el) => shortMenuRefs.current[short.id] = el}
                       >
-                        {deletingShortId === short.id ? (
-                          <span style={{ fontSize: 12 }}>Deleting…</span>
-                        ) : (
+                        <button
+                          className="short-menu-btn"
+                          title="More options"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleShortMenu(short.id);
+                          }}
+                          disabled={deletingShortId === short.id}
+                        >
                           <svg
                             width="18"
                             height="18"
                             viewBox="0 0 24 24"
                             fill="currentColor"
                           >
-                            <path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1z" />
+                            <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
                           </svg>
+                        </button>
+                        {shortMenus[short.id] && (
+                          <div className="short-menu-dropdown">
+                            <button
+                              className="short-menu-item delete-item"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                closeShortMenu(short.id);
+                                handleDeleteShort(short.id);
+                              }}
+                              disabled={deletingShortId === short.id}
+                            >
+                              <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="currentColor"
+                              >
+                                <path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1z" />
+                              </svg>
+                              {deletingShortId === short.id ? "Deleting..." : "Delete"}
+                            </button>
+                          </div>
                         )}
-                      </button>
+                      </div>
                     )}
                   </div>
                 </div>
