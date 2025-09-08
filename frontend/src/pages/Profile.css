@@ -276,8 +276,8 @@
 }
 
 .stat-card {
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(24px);
+  background: transparent;
+  backdrop-filter: none;
   border: 1px solid rgba(59, 130, 246, 0.4);
   border-radius: 16px;
   padding: 24px;
